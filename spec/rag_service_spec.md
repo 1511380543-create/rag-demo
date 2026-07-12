@@ -17,6 +17,24 @@
 - 索引构建：`Python + LlamaIndex`（用于文档切分、索引构建、检索流程编排）
 - 服务接口：`Python + FastAPI`（用于对外 HTTP API 暴露）
 
+### 1.2.1 Qwen 向量模型配置（阿里云百炼）
+
+- 向量模型：`text-embedding-v4`
+- 接入方式：通过环境变量 `API_KEY_ALI` 读取阿里云百炼平台 API Key
+- 适用范围：默认用于文档 chunk 向量化与查询向量化
+
+建议在本地环境中设置：
+
+```bash
+export API_KEY_ALI="你的阿里云百炼API Key"
+```
+
+实现阶段约束：
+
+- Embedding 模型名称统一使用：`text-embedding-v4`
+- 若 `API_KEY_ALI` 未配置，服务启动应报错并提示缺少必要环境变量
+- 阿里云百炼兼容 OpenAI 风格 SDK 时，统一通过 `api_key=API_KEY_ALI` 注入凭证
+
 ### 1.3 本阶段范围
 
 - 文档类型：`pdf`
