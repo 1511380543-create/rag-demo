@@ -38,6 +38,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 ### 1.3 本阶段范围
 
 - 文档类型：`pdf`
+- 入库输入：本地文件路径（`file_path`）
 - 检索方式：向量召回 `Top-K`
 - 存储方式：本地向量索引（具体实现阶段选型）
 
@@ -57,7 +58,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 - `IndexDocument`
   - `doc_id: str`（必填，去空白后非空，长度 `1-128`）
-  - `content: str`（必填，去空白后非空）
+  - `file_path: str`（必填，去空白后非空，本地 PDF 文件路径）
   - `metadata: dict[str, Any] | None = None`（可选）
 - `IndexRequest`
   - `documents: list[IndexDocument]`（必填，最少 `1` 条）
@@ -71,7 +72,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 #### 失败响应
 
-- `422`：文档数组为空、字段缺失、`doc_id/content` 非法
+- `422`：文档数组为空、字段缺失、`doc_id/file_path` 非法、`file_path` 非 PDF、文件不存在、PDF 内容为空
 - `500`：索引构建过程异常
 
 ### 2.2 查询召回 `POST /rag/query`
@@ -129,7 +130,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 | 字段 | 类型 | 必填 | 校验规则 | 错误示例 |
 |---|---|---|---|---|
 | `doc_id` | `str` | 是 | `strip` 后长度 `1-128` | 空字符串、全空白、长度超限 |
-| `content` | `str` | 是 | `strip` 后长度 `>=1` | 空字符串、全空白 |
+| `file_path` | `str` | 是 | `strip` 后长度 `>=1`，且必须是本地 `.pdf` 文件路径 | 空字符串、全空白、非 PDF 路径 |
 | `metadata` | `dict[str, Any]` | 否 | 若传入必须是对象类型 | 传入数组、字符串、数字 |
 
 #### `IndexRequest` 字段校验
@@ -166,7 +167,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 ## 3. 核心处理流程
 
-1. 接收文档并做基础清洗（去除无效空白）
+1. 接收本地 `file_path` 并读取 PDF 文本内容
 2. 按固定策略切分为 chunk
 3. 对 chunk 进行向量化并写入索引
 4. 查询时对问题向量化并召回 `Top-K`
@@ -176,6 +177,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 - `query` 去除首尾空白后不能为空
 - `top_k` 必须为正整数，默认 `3`
+- `file_path` 仅支持 `.pdf`，且必须是可读取的本地文件
 - 当召回为空时，返回空 `contexts` 数组
 - 返回的 `contexts` 数量不超过 `top_k`
 - 同一 `doc_id` 重复入库按“覆盖旧索引”处理（实现阶段保持一致）
@@ -196,18 +198,23 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 ## 6. 测试用例清单（新增）
 
-| case_id | 类型 | 场景 | 输入 | 期望 |
-|---|---|---|---|---|
-| `rag_index_ok_001` | integration | 正常入库 2 篇文档 | `documents=[...]` | `200`；`indexed_count=2`；`chunk_count>0` |
-| `rag_index_fail_empty_001` | integration | 空文档数组入库 | `documents=[]` | `422` |
-| `rag_query_fail_empty_001` | integration | 空查询 | `query=""` | `422` |
-| `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` |
-| `rag_query_ok_001` | integration | 正常查询并返回证据 | `query="..." , top_k=3` | `200`；`contexts` 长度 `<=3` |
-| `rag_query_ok_topk_001` | integration | 自定义 top_k 生效 | `query="..." , top_k=5` | `200`；`contexts` 长度 `<=5` |
-| `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` |
-| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok` |
-| `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） |
-| `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` |
+> 覆盖结论（当前代码）：测试用例维度覆盖完整（接口、边界、回归均有）。  
+> 执行状态说明：以下用例当前统一标记为“未执行（待执行）”。
+
+| case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
+|---|---|---|---|---|---|---|
+| `rag_index_ok_001` | integration | 正常入库 2 个本地 PDF | `documents=[{doc_id,file_path}, ...]` | `200`；`indexed_count=2`；`chunk_count>0` | 未执行 | 待执行 |
+| `rag_index_fail_empty_001` | integration | 空文档数组入库 | `documents=[]` | `422` | 未执行 | 待执行 |
+| `rag_index_fail_non_pdf_001` | integration | 非 PDF 路径入库 | `file_path="docs/a.txt"` | `422` | 未执行 | 待执行 |
+| `rag_index_fail_file_not_found_001` | integration | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 未执行 | 待执行 |
+| `rag_query_fail_empty_001` | integration | 空查询 | `query=""` | `422` | 未执行 | 待执行 |
+| `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` | 未执行 | 待执行 |
+| `rag_query_ok_001` | integration | 正常查询并返回证据 | `query="..." , top_k=3` | `200`；`contexts` 长度 `<=3` | 未执行 | 待执行 |
+| `rag_query_ok_topk_001` | integration | 自定义 top_k 生效 | `query="..." , top_k=5` | `200`；`contexts` 长度 `<=5` | 未执行 | 待执行 |
+| `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` | 未执行 | 待执行 |
+| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok` | 未执行 | 待执行 |
+| `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） | 未执行 | 待执行 |
+| `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` | 未执行 | 待执行 |
 
 ## 7. 测试沉淀规则（新增）
 
@@ -226,6 +233,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 ## 9. 当前状态
 
-- 当前为 spec 阶段，尚未开始具体代码实现
-- 下一步先确认：向量库选型、Embedding 模型、召回测评数据集来源
+- 核心接口已完成实现：`/rag/index`、`/rag/query`、`/rag/health`
+- 入库模式已确定为：通过本地 `file_path` 读取 PDF 后构建索引
+- Embedding 模型已确定并实现为：`text-embedding-v4`（阿里云百炼兼容 OpenAI 接口）
 
