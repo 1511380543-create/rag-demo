@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+llama-index-core
+llama-index-embeddings-openai
+openai
+pydantic-settings
+pypdf
