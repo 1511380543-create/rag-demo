@@ -1,5 +1,6 @@
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -29,11 +30,13 @@ def _error_response(status_code: int, error_code: str, message: str, detail: dic
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    # Pydantic 的 errors() 里可能包含 ValueError 对象，需要先转为可 JSON 序列化结构。
+    safe_errors = jsonable_encoder(exc.errors())
     return _error_response(
         status_code=422,
         error_code="VALIDATION_ERROR",
         message="请求参数校验失败",
-        detail={"errors": exc.errors()},
+        detail={"errors": safe_errors},
     )
 
 

@@ -199,22 +199,22 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 ## 6. 测试用例清单（新增）
 
 > 覆盖结论（当前代码）：测试用例维度覆盖完整（接口、边界、回归均有）。  
-> 执行状态说明：以下用例当前统一标记为“未执行（待执行）”。
+> 最近一次执行结果（2026-07-12）：共 12 条，`通过 11`，`预期失败 1`（已知差距）。
 
 | case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
 |---|---|---|---|---|---|---|
-| `rag_index_ok_001` | integration | 正常入库 2 个本地 PDF | `documents=[{doc_id,file_path}, ...]` | `200`；`indexed_count=2`；`chunk_count>0` | 未执行 | 待执行 |
-| `rag_index_fail_empty_001` | integration | 空文档数组入库 | `documents=[]` | `422` | 未执行 | 待执行 |
-| `rag_index_fail_non_pdf_001` | integration | 非 PDF 路径入库 | `file_path="docs/a.txt"` | `422` | 未执行 | 待执行 |
-| `rag_index_fail_file_not_found_001` | integration | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 未执行 | 待执行 |
-| `rag_query_fail_empty_001` | integration | 空查询 | `query=""` | `422` | 未执行 | 待执行 |
-| `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` | 未执行 | 待执行 |
-| `rag_query_ok_001` | integration | 正常查询并返回证据 | `query="..." , top_k=3` | `200`；`contexts` 长度 `<=3` | 未执行 | 待执行 |
-| `rag_query_ok_topk_001` | integration | 自定义 top_k 生效 | `query="..." , top_k=5` | `200`；`contexts` 长度 `<=5` | 未执行 | 待执行 |
-| `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` | 未执行 | 待执行 |
-| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok` | 未执行 | 待执行 |
-| `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） | 未执行 | 待执行 |
-| `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` | 未执行 | 待执行 |
+| `rag_index_ok_001` | integration | 正常入库 2 个本地 PDF | `documents=[{doc_id,file_path}, ...]` | `200`；`indexed_count=2`；`chunk_count>0` | 已执行-通过 | 返回 `200`，`indexed_count=2`，`chunk_count=26` |
+| `rag_index_fail_empty_001` | integration | 空文档数组入库 | `documents=[]` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_index_fail_non_pdf_001` | integration | 非 PDF 路径入库 | `file_path="docs/a.txt"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_index_fail_file_not_found_001` | integration | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_query_fail_empty_001` | integration | 空查询 | `query=""` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` | 已执行-通过 | 返回 `400`，错误码 `INDEX_NOT_READY` |
+| `rag_query_ok_001` | integration | 正常查询并返回证据 | `query="..." , top_k=3` | `200`；`contexts` 长度 `<=3` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `3` |
+| `rag_query_ok_topk_001` | integration | 自定义 top_k 生效 | `query="..." , top_k=5` | `200`；`contexts` 长度 `<=5` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `5` |
+| `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok` | 已执行-通过 | 返回 `200`，`status=ok` |
+| `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） | 已执行-通过 | 返回 `200`，召回文本命中 `11009` 与 `30s/30秒` 关键线索 |
+| `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` | 已执行-预期失败 | 实际返回非空 `contexts`，当前实现缺少低相关阈值过滤（已在测试中 xfail 标记） |
 
 ## 7. 测试沉淀规则（新增）
 
