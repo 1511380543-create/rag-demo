@@ -8,7 +8,8 @@
 ### 1.1 目标
 
 构建一个可本地运行的基础 RAG 检索服务，能力包括：
-- 文档入库（解析、切分、向量化、索引）
+- 文档切分入库（本地解析、切分后写入 MySQL）
+- 索引构建（从 MySQL 读取 chunk 与 metadata 构建向量索引）
 - 查询检索（召回最相关片段）
 
 ### 1.2 技术栈约定
@@ -35,12 +36,45 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 - 若 `API_KEY_ALI` 未配置，服务启动应报错并提示缺少必要环境变量
 - 阿里云百炼兼容 OpenAI 风格 SDK 时，统一通过 `api_key=API_KEY_ALI` 注入凭证
 
+### 1.2.2 MySQL 配置（chunk 与 metadata 存储）
+
+- 数据库类型：`MySQL 8.0+`
+- 连接地址：`127.0.0.1:3306`
+- 账号：`root`
+- 密码：`root`
+- 默认库名：`rag_demo`
+- 字符集要求：`utf8mb4`
+- 排序规则建议：`utf8mb4_0900_ai_ci`
+
+建议在本地环境中设置：
+
+```bash
+export MYSQL_HOST="127.0.0.1"
+export MYSQL_PORT="3306"
+export MYSQL_USER="root"
+export MYSQL_PASSWORD="root"
+export MYSQL_DATABASE="rag_demo"
+```
+
+实现阶段约束：
+
+- chunk 原文与 metadata 必须落库到 MySQL，不保存在内存中
+- `doc_id + chunk_index` 组合必须唯一，避免重复写入同一分片
+- metadata 统一使用 `JSON` 字段存储，保留上层透传能力
+- 文档读取方式保持现状（仍通过本地 `file_path` 读取 PDF，不在 MySQL 存储原始文档）
+- 文档级覆盖写入时（同 `doc_id` 重复入库），仅删除旧 chunk 后写入新 chunk，保证数据一致性
+
 ### 1.3 本阶段范围
 
 - 文档类型：`pdf`
 - 入库输入：本地文件路径（`file_path`）
 - 检索方式：向量召回 `Top-K`
-- 存储方式：本地向量索引（具体实现阶段选型）
+- 流程拆分：
+  - 阶段一：本地读取文档并切分，chunk 与 metadata 落库到 MySQL
+  - 阶段二：索引构建时仅从 MySQL 读取 chunk 与 metadata，不再直接读取本地 PDF
+- 存储方式：
+  - 向量检索仍由现有索引能力负责
+  - chunk 文本与 metadata 持久化到 MySQL
 
 ### 1.4 非目标范围
 
@@ -52,7 +86,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 ## 2. 服务接口规格
 
-### 2.1 文档入库 `POST /rag/index`
+### 2.1 文档切分入库 `POST /rag/chunks`
 
 #### 请求模型（FastAPI / Pydantic）
 
@@ -65,17 +99,37 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 #### 成功响应 `200`
 
-- `IndexResponse`
-  - `indexed_count: int`（成功入库文档数）
-  - `chunk_count: int`（总切分 chunk 数）
-  - `index_name: str`（当前索引名称）
+- `ChunkIngestResponse`
+  - `stored_doc_count: int`（成功处理并写入 chunk 的文档数）
+  - `stored_chunk_count: int`（写入 MySQL 的 chunk 总数）
 
 #### 失败响应
 
 - `422`：文档数组为空、字段缺失、`doc_id/file_path` 非法、`file_path` 非 PDF、文件不存在、PDF 内容为空
+- `500`：文档切分或 MySQL 写入异常
+
+### 2.2 索引构建 `POST /rag/index/build`
+
+#### 请求模型（FastAPI / Pydantic）
+
+- `BuildIndexRequest`
+  - `doc_ids: list[str] | None = None`（可选；为空时表示基于 MySQL 全量 chunk 构建索引）
+  - `force_rebuild: bool = True`（可选；是否强制全量重建目标索引）
+
+#### 成功响应 `200`
+
+- `BuildIndexResponse`
+  - `indexed_doc_count: int`（参与索引构建的文档数）
+  - `indexed_chunk_count: int`（参与索引构建的 chunk 数）
+  - `index_name: str`（当前索引名称）
+
+#### 失败响应
+
+- `422`：`doc_ids` 字段格式非法（非字符串数组、空字符串等）
+- `400`：MySQL 无可用 chunk（无法构建索引）
 - `500`：索引构建过程异常
 
-### 2.2 查询召回 `POST /rag/query`
+### 2.3 查询召回 `POST /rag/query`
 
 #### 请求模型（FastAPI / Pydantic）
 
@@ -104,7 +158,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 - `400`：索引未初始化
 - `500`：检索过程异常
 
-### 2.3 健康检查 `GET /rag/health`
+### 2.4 健康检查 `GET /rag/health`
 
 #### 成功响应 `200`
 
@@ -114,14 +168,14 @@ export API_KEY_ALI="你的阿里云百炼API Key"
   - `indexed_docs: int`（已入库文档数）
   - `indexed_chunks: int`（已入库 chunk 数）
 
-### 2.4 错误响应统一结构
+### 2.5 错误响应统一结构
 
 - `ErrorResponse`
   - `error_code: str`（如 `VALIDATION_ERROR`、`INDEX_NOT_READY`）
   - `message: str`（错误说明）
   - `detail: dict[str, Any] | None`（可选详情）
 
-### 2.5 字段级校验规则（Pydantic 对齐）
+### 2.6 字段级校验规则（Pydantic 对齐）
 
 > 本节用于约束实现阶段的 Pydantic `Field` 校验，不满足规则时统一返回 `422`。
 
@@ -169,9 +223,10 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 1. 接收本地 `file_path` 并读取 PDF 文本内容
 2. 按固定策略切分为 chunk
-3. 对 chunk 进行向量化并写入索引
-4. 查询时对问题向量化并召回 `Top-K`
-5. 返回召回片段与检索轨迹信息
+3. 将 chunk 与 metadata 写入 MySQL
+4. 索引构建阶段从 MySQL 读取 chunk 与 metadata
+5. 对读取到的 chunk 进行向量化并写入索引
+6. 查询时对问题向量化并召回 `Top-K`，返回召回片段与检索轨迹信息
 
 ## 4. 关键规则与边界
 
@@ -180,7 +235,30 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 - `file_path` 仅支持 `.pdf`，且必须是可读取的本地文件
 - 当召回为空时，返回空 `contexts` 数组
 - 返回的 `contexts` 数量不超过 `top_k`
-- 同一 `doc_id` 重复入库按“覆盖旧索引”处理（实现阶段保持一致）
+- 同一 `doc_id` 重复入库按“覆盖旧 chunk 数据”处理
+- 索引构建数据源固定为 MySQL，不直接读取本地 PDF
+
+### 4.1 MySQL 落库规则（新增）
+
+- 仅保留 chunk 表，按 `doc_id` 与 `chunk_index` 唯一存储，记录 chunk 文本与 chunk 级 metadata
+- 不在 MySQL 中存储原始文档内容或文档主记录
+- 检索结果中的 `chunk_id` 使用数据库主键 `id` 的字符串形式返回
+- 文档覆盖入库时，按 `doc_id` 删除历史 chunk 后再批量写入新 chunk
+- 索引构建阶段按需从 MySQL 读取 `chunk_text` 与 `metadata` 生成向量索引
+
+### 4.2 MySQL 表结构设计（新增）
+
+> 建表 SQL 见：`spec/sql/mysql_schema.sql`
+
+1. `rag_chunks`（分片表）
+   - `id`: bigint 主键，自增
+   - `doc_id`: varchar(128)，来源文档业务 ID
+   - `chunk_index`: int，分片序号（从 0 开始）
+   - `chunk_text`: longtext，分片原文
+   - `metadata`: json，分片级 metadata
+   - `created_at`: datetime(3)，创建时间
+   - 唯一索引：`uk_doc_chunk_index(doc_id, chunk_index)`
+   - 查询索引：`idx_doc_id(doc_id)`
 
 ## 5. 测试策略（新增）
 
@@ -192,7 +270,7 @@ export API_KEY_ALI="你的阿里云百炼API Key"
 
 ### 5.2 覆盖目标
 
-- 接口覆盖：`/rag/index`、`/rag/query`、`/rag/health`
+- 接口覆盖：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
 - 规则覆盖：空输入、非法 `top_k`、索引未初始化、召回为空
 - 结果覆盖：召回结构完整、上下文数量与质量符合约束
 
