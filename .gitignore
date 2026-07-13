@@ -218,3 +218,6 @@ __marimo__/
 .streamlit/secrets.toml
 
 .DS_Store
+
+# 个人学习笔记，不纳入版本管理
+notes/

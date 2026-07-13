@@ -46,6 +46,75 @@ export MYSQL_DATABASE="rag_demo"
 - 唯一索引：`uk_doc_chunk_index(doc_id, chunk_index)`
 - 查询索引：`idx_doc_id(doc_id)`
 
+### 3.2 `rag_query_logs`（监控）
+
+- `id`: bigint 主键，自增
+- `query_text`: text，查询文本
+- `top_k`: int，本次查询 `top_k`
+- `filters_applied`: tinyint，是否启用元数据过滤（`0/1`）
+- `embed_ms`: int，向量化耗时（毫秒）
+- `retrieve_ms`: int，检索耗时（毫秒）
+- `total_ms`: int，总耗时（毫秒）
+- `retrieved_before_filter`: int，过滤前召回数
+- `retrieved_after_filter`: int，过滤后召回数
+- `is_empty_recall`: tinyint，是否空召回（`0/1`）
+- `top_score`: double，最高分（可空，仅记录不参与过滤）
+- `min_score_value`: double，最低分（可空，仅记录不参与过滤）
+- `avg_score`: double，平均分（可空，仅记录不参与过滤）
+- `error_code`: varchar(64)，失败错误码（成功为空）
+- `created_at`: datetime(3)，创建时间
+
+索引约束：
+
+- 查询索引：`idx_created_at(created_at)`
+
+### 3.3 `rag_eval_dataset`（评测集）
+
+- `id`: bigint 主键，自增
+- `case_id`: varchar(128)，评测用例业务 ID
+- `query_text`: text，评测查询文本
+- `relevant_chunk_ids`: json，chunk 级标注（可空）
+- `expected_keywords`: json，关键词命中标注（可空）
+- `top_k`: int，样本级 `top_k`（可空）
+- `enabled`: tinyint，是否参与评测（`0/1`）
+- `created_at`: datetime(3)，创建时间
+- `updated_at`: datetime(3)，更新时间
+
+索引约束：
+
+- 唯一索引：`uk_case_id(case_id)`
+
+### 3.4 `rag_eval_runs`（评测轮次汇总）
+
+- `id`: bigint 主键，自增（即 `run_id`）
+- `dataset_size`: int，参与评测样本数
+- `top_k`: int，本轮实际 `top_k`
+- `avg_hit`: double，平均命中率
+- `avg_recall`: double，平均召回率
+- `avg_mrr`: double，平均 MRR
+- `avg_ndcg`: double，平均 nDCG
+- `avg_latency_ms`: double，平均检索延迟
+- `note`: varchar(255)，本轮备注（可空）
+- `created_at`: datetime(3)，创建时间
+
+### 3.5 `rag_eval_run_items`（评测逐条明细）
+
+- `id`: bigint 主键，自增
+- `run_id`: bigint，关联 `rag_eval_runs.id`
+- `case_id`: varchar(128)，评测用例业务 ID
+- `query_text`: text，评测查询文本
+- `hit`: tinyint，是否命中（`0/1`）
+- `recall`: double，单条召回率
+- `mrr`: double，单条 MRR
+- `ndcg`: double，单条 nDCG
+- `latency_ms`: int，单条检索耗时（毫秒）
+- `retrieved_chunk_ids`: json，实际召回的 chunk_id 列表
+- `created_at`: datetime(3)，创建时间
+
+索引约束：
+
+- 查询索引：`idx_run_id(run_id)`
+
 ## 4. 数据生命周期规则
 
 - 新文档入库：
@@ -57,6 +126,14 @@ export MYSQL_DATABASE="rag_demo"
 - 索引构建：
   - 按 `doc_ids`（可选）读取 chunk 数据
   - 读取字段至少包含：`doc_id`、`chunk_text`、`metadata`
+- 监控日志：
+  - 每次 `/rag/query` 处理结束后写入一条 `rag_query_logs`
+  - 仅追加写入，不做更新与删除
+- 评测集：
+  - 按 `case_id` upsert 到 `rag_eval_dataset`
+- 评测执行：
+  - 每次 `/rag/eval/run` 写入一条 `rag_eval_runs` 汇总
+  - 同时按样本写入多条 `rag_eval_run_items` 明细
 
 ## 5. 与 SQL 文件映射
 

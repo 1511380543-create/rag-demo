@@ -20,3 +20,71 @@ CREATE TABLE IF NOT EXISTS `rag_chunks` (
   UNIQUE KEY `uk_doc_chunk_index` (`doc_id`, `chunk_index`),
   KEY `idx_doc_id` (`doc_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG分片表';
+
+-- 查询监控日志表：记录每次查询的延迟、召回与分数指标
+CREATE TABLE IF NOT EXISTS `rag_query_logs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `query_text` TEXT NOT NULL COMMENT '查询文本',
+  `top_k` INT UNSIGNED NOT NULL COMMENT '本次查询top_k',
+  `filters_applied` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '是否启用元数据过滤:0否1是',
+  `embed_ms` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '向量化耗时(毫秒)',
+  `retrieve_ms` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '检索耗时(毫秒)',
+  `total_ms` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '总耗时(毫秒)',
+  `retrieved_before_filter` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '过滤前召回数',
+  `retrieved_after_filter` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '过滤后召回数',
+  `is_empty_recall` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '是否空召回:0否1是',
+  `top_score` DOUBLE NULL COMMENT '最高分,仅记录不参与过滤',
+  `min_score_value` DOUBLE NULL COMMENT '最低分,仅记录不参与过滤',
+  `avg_score` DOUBLE NULL COMMENT '平均分,仅记录不参与过滤',
+  `error_code` VARCHAR(64) NULL COMMENT '失败错误码,成功为空',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG查询监控日志表';
+
+-- 评测集表：维护检索质量评测的黄金样本
+CREATE TABLE IF NOT EXISTS `rag_eval_dataset` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `case_id` VARCHAR(128) NOT NULL COMMENT '评测用例业务ID',
+  `query_text` TEXT NOT NULL COMMENT '评测查询文本',
+  `relevant_chunk_ids` JSON NULL COMMENT 'chunk级标注',
+  `expected_keywords` JSON NULL COMMENT '关键词命中标注',
+  `top_k` INT UNSIGNED NULL COMMENT '样本级top_k',
+  `enabled` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '是否参与评测:0否1是',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_case_id` (`case_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG评测集表';
+
+-- 评测轮次汇总表：记录每次评测的整体指标
+CREATE TABLE IF NOT EXISTS `rag_eval_runs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID,即run_id',
+  `dataset_size` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '参与评测样本数',
+  `top_k` INT UNSIGNED NOT NULL COMMENT '本轮实际top_k',
+  `avg_hit` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均命中率',
+  `avg_recall` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均召回率',
+  `avg_mrr` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均MRR',
+  `avg_ndcg` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均nDCG',
+  `avg_latency_ms` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均检索延迟(毫秒)',
+  `note` VARCHAR(255) NULL COMMENT '本轮备注',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG评测轮次汇总表';
+
+-- 评测逐条明细表：记录每个样本在某轮评测中的指标
+CREATE TABLE IF NOT EXISTS `rag_eval_run_items` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `run_id` BIGINT UNSIGNED NOT NULL COMMENT '关联rag_eval_runs.id',
+  `case_id` VARCHAR(128) NOT NULL COMMENT '评测用例业务ID',
+  `query_text` TEXT NOT NULL COMMENT '评测查询文本',
+  `hit` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '是否命中:0否1是',
+  `recall` DOUBLE NOT NULL DEFAULT 0 COMMENT '单条召回率',
+  `mrr` DOUBLE NOT NULL DEFAULT 0 COMMENT '单条MRR',
+  `ndcg` DOUBLE NOT NULL DEFAULT 0 COMMENT '单条nDCG',
+  `latency_ms` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '单条检索耗时(毫秒)',
+  `retrieved_chunk_ids` JSON NULL COMMENT '实际召回的chunk_id列表',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_run_id` (`run_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG评测逐条明细表';

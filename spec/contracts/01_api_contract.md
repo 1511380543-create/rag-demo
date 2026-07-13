@@ -9,6 +9,11 @@
 - `POST /rag/index/build`：索引构建（MySQL -> 向量索引）
 - `POST /rag/query`：查询召回
 - `GET /rag/health`：健康检查
+- `GET /rag/metrics`：查询监控指标聚合
+- `POST /rag/eval/dataset`：批量新增/更新评测样本
+- `GET /rag/eval/dataset`：列出评测样本
+- `POST /rag/eval/run`：执行一轮检索测评
+- `GET /rag/eval/runs`：查看历史评测轮次
 
 ## 2. 文档切分入库 `POST /rag/chunks`
 
@@ -74,7 +79,7 @@
   - `query: str`
   - `top_k: int`
   - `contexts: list[RetrievedContext]`
-  - `trace: dict[str, Any] | None`（可选调试信息）
+  - `trace: dict[str, Any] | None`（可选调试信息，包含 `retrieved_before_filter`、`retrieved_after_filter`、`filters_applied`，并新增 `top_score`、`avg_score`、`embed_ms`、`retrieve_ms`、`total_ms` 等监控相关字段）
 
 ### 4.3 失败响应
 
@@ -95,7 +100,7 @@
 ## 6. 统一错误响应结构
 
 - `ErrorResponse`
-  - `error_code: str`（如 `VALIDATION_ERROR`、`INDEX_NOT_READY`、`NO_CHUNKS_FOR_INDEX`）
+  - `error_code: str`（如 `VALIDATION_ERROR`、`INDEX_NOT_READY`、`NO_CHUNKS_FOR_INDEX`、`EVAL_DATASET_EMPTY`）
   - `message: str`（错误说明）
   - `detail: dict[str, Any] | None`（可选详情）
 
@@ -129,3 +134,126 @@
 | `query` | `str` | 是 | `strip` 后长度 `>=1` | 空字符串、全空白 |
 | `top_k` | `int` | 否 | 默认 `3`，范围 `1-20` | `0`、负数、超过上限、非整数 |
 | `filters` | `dict[str, Any]` | 否 | 若传入必须是对象类型 | 传入数组、字符串、数字 |
+
+## 8. 监控指标 `GET /rag/metrics`
+
+### 8.1 请求参数
+
+- `window_minutes: int | None = None`（可选，查询窗口分钟数；为空表示全量统计）
+
+### 8.2 成功响应 `200`
+
+- `MetricsResponse`
+  - `window_minutes: int | None`（回显查询窗口）
+  - `total_queries: int`（窗口内查询总数）
+  - `empty_recall_count: int`（空召回次数）
+  - `empty_recall_rate: float`（空召回率，`0-1`）
+  - `avg_total_ms: float`（平均总延迟）
+  - `p95_total_ms: float`（`p95` 总延迟）
+  - `avg_embed_ms: float`（平均向量化延迟）
+  - `avg_retrieve_ms: float`（平均检索延迟）
+  - `avg_top_score: float`（平均 `top_score`）
+
+### 8.3 失败响应
+
+- `422`：`window_minutes` 非法（非正整数）
+- `500`：监控数据读取异常
+
+## 9. 评测样本管理 `POST /rag/eval/dataset`
+
+### 9.1 请求模型
+
+- `EvalCase`
+  - `case_id: str`（必填，去空白后非空，长度 `1-128`）
+  - `query_text: str`（必填，去空白后非空）
+  - `relevant_chunk_ids: list[str] | None = None`（可选，chunk 级标注）
+  - `expected_keywords: list[str] | None = None`（可选，关键词命中标注）
+  - `top_k: int | None = None`（可选，样本级 `top_k`，范围 `1-20`）
+  - `enabled: bool = True`（可选，是否参与评测）
+- `EvalDatasetUpsertRequest`
+  - `cases: list[EvalCase]`（必填，最少 `1` 条）
+
+约束：`relevant_chunk_ids` 与 `expected_keywords` 至少提供其一。
+
+### 9.2 成功响应 `200`
+
+- `EvalDatasetUpsertResponse`
+  - `upserted_count: int`（新增或更新的样本数）
+
+### 9.3 失败响应
+
+- `422`：样本数组为空、字段非法、两类标注均缺失
+- `500`：写库异常
+
+## 10. 评测样本列表 `GET /rag/eval/dataset`
+
+### 10.1 成功响应 `200`
+
+- `EvalDatasetListResponse`
+  - `cases: list[EvalCase]`
+  - `total: int`
+
+## 11. 执行测评 `POST /rag/eval/run`
+
+### 11.1 请求模型
+
+- `EvalRunRequest`
+  - `case_ids: list[str] | None = None`（可选；为空表示全量启用样本）
+  - `top_k: int | None = None`（可选；覆盖样本级 `top_k`，范围 `1-20`）
+  - `note: str | None = None`（可选，本轮备注）
+
+### 11.2 成功响应 `200`
+
+- `EvalMetricItem`
+  - `case_id: str`
+  - `query_text: str`
+  - `hit: int`（`0/1`）
+  - `recall: float`
+  - `mrr: float`
+  - `ndcg: float`
+  - `latency_ms: int`
+  - `retrieved_chunk_ids: list[str]`
+- `EvalRunResponse`
+  - `run_id: int`（评测轮次 ID）
+  - `dataset_size: int`（参与评测样本数）
+  - `top_k: int`（本轮实际 `top_k`）
+  - `avg_hit: float`
+  - `avg_recall: float`
+  - `avg_mrr: float`
+  - `avg_ndcg: float`
+  - `avg_latency_ms: float`
+  - `items: list[EvalMetricItem]`
+
+### 11.3 失败响应
+
+- `422`：`case_ids`、`top_k` 字段格式非法
+- `400`：索引未初始化（`INDEX_NOT_READY`）或评测集为空（`EVAL_DATASET_EMPTY`）
+- `500`：评测执行异常
+
+## 12. 评测历史 `GET /rag/eval/runs`
+
+### 12.1 请求参数
+
+- `limit: int = 20`（可选，返回条数，范围 `1-100`）
+
+### 12.2 成功响应 `200`
+
+- `EvalRunSummary`
+  - `run_id: int`
+  - `dataset_size: int`
+  - `top_k: int`
+  - `avg_hit: float`
+  - `avg_recall: float`
+  - `avg_mrr: float`
+  - `avg_ndcg: float`
+  - `avg_latency_ms: float`
+  - `note: str | None`
+  - `created_at: str`
+- `EvalRunListResponse`
+  - `runs: list[EvalRunSummary]`
+  - `total: int`
+
+### 12.3 失败响应
+
+- `422`：`limit` 非法
+- `500`：评测历史读取异常

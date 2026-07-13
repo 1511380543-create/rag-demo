@@ -24,10 +24,21 @@
 
 - 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
 - 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
+- 监控与测评能力当前仅完成 spec 设计，代码尚未实现
 
-## 4. 迭代记录
+## 4. 监控与测评（规划中）
+
+- 设计状态：已完成 spec 设计，权威文档见 `spec/architecture/07_observability_and_eval.md`
+- 监控：新增 `GET /rag/metrics` 与 `rag_query_logs` 表，采集查询延迟、召回与分数指标
+- 测评：新增 `/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs` 接口与 `rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items` 表
+- 分数处理：本轮只“记录分数”，不做阈值过滤与分数降级；阈值过滤 + 分数降级为后续规划
+- 已知差距：`rag_retrieval_empty_reg_001`（低相关空召回）本轮不闭环，留待后续阈值/降级能力
+- 实现状态：待实现（本轮仅更新 spec，待提交 git 云端后再进入代码实现）
+
+## 5. 迭代记录
 
 - 2026-07-13：
   - 明确 MySQL 只存 chunk 与 metadata，不存原始文档
   - 明确切分入库与索引构建必须拆分为两个阶段
   - spec 重构为主文档 + 子文档结构，支持渐进式披露
+  - 新增监控与测评能力设计（子文档 `07`），同步更新接口、数据模型、流程、非功能与测试计划

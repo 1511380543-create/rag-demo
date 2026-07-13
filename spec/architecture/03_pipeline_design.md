@@ -70,11 +70,55 @@
 
 1. 对查询文本向量化
 2. 在当前索引中召回 `Top-K`
-3. 返回 `contexts` 与可选 `trace`
+3. 返回 `contexts` 与可选 `trace`（本轮不做基于分数的过滤，仅记录分数）
+4. 查询结束后写入一条监控日志（见阶段四）
 
 对应接口：
 
 - `POST /rag/query`
+
+### 阶段四：查询监控埋点
+
+输入：
+
+- 单次查询的请求参数与检索结果
+
+处理：
+
+1. 采集延迟拆分（`embed_ms`/`retrieve_ms`/`total_ms`）
+2. 采集召回情况（过滤前后数量、是否空召回）
+3. 采集分数分布（`top_score`/`min_score_value`/`avg_score`）
+4. 写入 `rag_query_logs`（追加写，失败不影响查询响应）
+
+输出：
+
+- 一条监控日志记录
+
+对应接口：
+
+- 埋点内嵌于 `POST /rag/query`
+- 聚合暴露：`GET /rag/metrics`
+
+### 阶段五：检索测评
+
+输入：
+
+- 评测集样本（`query_text` + ground truth + 可选 `top_k`）
+
+处理：
+
+1. 逐条样本调用检索链路（读取当前内存索引，不触发重建）
+2. 按 ground truth 计算 `hit@k`/`recall@k`/`mrr@k`/`ndcg@k` 与 `latency_ms`
+3. 写入 `rag_eval_runs` 汇总与 `rag_eval_run_items` 明细
+
+输出：
+
+- 一轮评测的汇总指标与逐条明细
+
+对应接口：
+
+- 评测集管理：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`
+- 执行与查看：`POST /rag/eval/run`、`GET /rag/eval/runs`
 
 ## 3. 关键解耦约束
 
@@ -87,6 +131,9 @@
 - 阶段一写库异常：返回 `500`，并保留错误原因
 - 阶段二无可用 chunk：返回 `400`（业务状态错误）
 - 查询阶段索引未就绪：返回 `400`（`INDEX_NOT_READY`）
+- 阶段四监控写库异常：不影响查询响应，仅记录日志
+- 阶段五评测集为空：返回 `400`（`EVAL_DATASET_EMPTY`）
+- 阶段五索引未就绪：返回 `400`（`INDEX_NOT_READY`）
 
 ## 5. 验收标准
 
