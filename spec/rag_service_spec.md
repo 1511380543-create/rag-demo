@@ -1,317 +1,57 @@
-# RAG 服务规格（含测试沉淀）
+# RAG 服务规格（主文档）
 
-> 本文档用于当前项目的 RAG 服务开发。  
-> 约束：先做 spec 探讨与确认，再进入实现；所有工作产出必须同步沉淀测试用例。
+> 本文档是 RAG 项目的规格入口，采用“主文档 + 子文档”的渐进式披露结构。  
+> 阅读顺序建议：先看本页，再按角色进入对应子文档。
 
-## 1. 目标与范围
+## 1. 文档定位
 
-### 1.1 目标
+- 目标：统一 RAG 能力边界，降低实现与测试阶段的理解偏差
+- 结构：主文档只保留导航与关键约束，细节放到子文档
+- 约束：先更新 spec，再进行代码开发与测试沉淀
 
-构建一个可本地运行的基础 RAG 检索服务，能力包括：
-- 文档切分入库（本地解析、切分后写入 MySQL）
-- 索引构建（从 MySQL 读取 chunk 与 metadata 构建向量索引）
-- 查询检索（召回最相关片段）
+## 2. 项目目标与范围（摘要）
 
-### 1.2 技术栈约定
+### 2.1 核心目标
 
-- 开发语言：`Python`
-- 索引构建：`Python + LlamaIndex`（用于文档切分、索引构建、检索流程编排）
-- 服务接口：`Python + FastAPI`（用于对外 HTTP API 暴露）
+- 文档切分入库：从本地 `file_path` 读取 PDF，切分后写入 MySQL
+- 索引构建：从 MySQL 读取 `chunks/metadata` 构建向量索引
+- 查询检索：基于向量索引进行 `Top-K` 召回
 
-### 1.2.1 Qwen 向量模型配置（阿里云百炼）
-
-- 向量模型：`text-embedding-v4`
-- 接入方式：通过环境变量 `API_KEY_ALI` 读取阿里云百炼平台 API Key
-- 适用范围：默认用于文档 chunk 向量化与查询向量化
-
-建议在本地环境中设置：
-
-```bash
-export API_KEY_ALI="你的阿里云百炼API Key"
-```
-
-实现阶段约束：
-
-- Embedding 模型名称统一使用：`text-embedding-v4`
-- 若 `API_KEY_ALI` 未配置，服务启动应报错并提示缺少必要环境变量
-- 阿里云百炼兼容 OpenAI 风格 SDK 时，统一通过 `api_key=API_KEY_ALI` 注入凭证
-
-### 1.2.2 MySQL 配置（chunk 与 metadata 存储）
-
-- 数据库类型：`MySQL 8.0+`
-- 连接地址：`127.0.0.1:3306`
-- 账号：`root`
-- 密码：`root`
-- 默认库名：`rag_demo`
-- 字符集要求：`utf8mb4`
-- 排序规则建议：`utf8mb4_0900_ai_ci`
-
-建议在本地环境中设置：
-
-```bash
-export MYSQL_HOST="127.0.0.1"
-export MYSQL_PORT="3306"
-export MYSQL_USER="root"
-export MYSQL_PASSWORD="root"
-export MYSQL_DATABASE="rag_demo"
-```
-
-实现阶段约束：
-
-- chunk 原文与 metadata 必须落库到 MySQL，不保存在内存中
-- `doc_id + chunk_index` 组合必须唯一，避免重复写入同一分片
-- metadata 统一使用 `JSON` 字段存储，保留上层透传能力
-- 文档读取方式保持现状（仍通过本地 `file_path` 读取 PDF，不在 MySQL 存储原始文档）
-- 文档级覆盖写入时（同 `doc_id` 重复入库），仅删除旧 chunk 后写入新 chunk，保证数据一致性
-
-### 1.3 本阶段范围
+### 2.2 本阶段范围
 
 - 文档类型：`pdf`
-- 入库输入：本地文件路径（`file_path`）
-- 检索方式：向量召回 `Top-K`
-- 流程拆分：
-  - 阶段一：本地读取文档并切分，chunk 与 metadata 落库到 MySQL
-  - 阶段二：索引构建时仅从 MySQL 读取 chunk 与 metadata，不再直接读取本地 PDF
-- 存储方式：
-  - 向量检索仍由现有索引能力负责
-  - chunk 文本与 metadata 持久化到 MySQL
+- 数据存储：MySQL 存 `chunk_text` 与 `metadata`，不存原始文档
+- 索引构建数据源：固定为 MySQL
 
-### 1.4 非目标范围
+### 2.3 非目标范围
 
 - 暂不支持多租户与鉴权
 - 暂不支持复杂重排（rerank）
 - 暂不支持在线增量热更新索引
-- 暂不做前端页面
-- 暂不做答案生成
+- 暂不做前端页面与答案生成
 
-## 2. 服务接口规格
+## 3. 阅读路径（渐进式披露）
 
-### 2.1 文档切分入库 `POST /rag/chunks`
+- 产品/需求：先看 `spec/architecture/03_pipeline_design.md`，再看 `spec/contracts/01_api_contract.md`
+- 后端开发：先看 `spec/architecture/02_data_model_mysql.md`，再看 `spec/contracts/01_api_contract.md`
+- 测试与验收：先看 `spec/testing/05_test_plan_and_cases.md`
+- 迭代排期：看 `spec/status/06_status_and_iteration_log.md`
 
-#### 请求模型（FastAPI / Pydantic）
+## 4. 子文档索引
 
-- `IndexDocument`
-  - `doc_id: str`（必填，去空白后非空，长度 `1-128`）
-  - `file_path: str`（必填，去空白后非空，本地 PDF 文件路径）
-  - `metadata: dict[str, Any] | None = None`（可选）
-- `IndexRequest`
-  - `documents: list[IndexDocument]`（必填，最少 `1` 条）
+- `spec/contracts/01_api_contract.md`：接口契约、请求响应、错误码、字段校验
+- `spec/architecture/02_data_model_mysql.md`：MySQL 配置、表结构、索引与数据覆盖规则
+- `spec/architecture/03_pipeline_design.md`：切分入库与索引构建解耦后的流程设计
+- `spec/architecture/04_non_functional_and_boundaries.md`：关键规则、边界条件、非功能约束
+- `spec/testing/05_test_plan_and_cases.md`：测试分层、覆盖目标、回归用例清单
+- `spec/status/06_status_and_iteration_log.md`：当前状态、里程碑、已知差距与迭代记录
 
-#### 成功响应 `200`
+## 5. 全局一致性约束
 
-- `ChunkIngestResponse`
-  - `stored_doc_count: int`（成功处理并写入 chunk 的文档数）
-  - `stored_chunk_count: int`（写入 MySQL 的 chunk 总数）
+- 接口与数据模型变更，必须同步更新 `01`、`02`、`03` 三份子文档
+- 测试策略与回归用例变更，必须同步更新 `05` 文档
+- 版本状态与实际实现差异，必须同步更新 `06` 文档
 
-#### 失败响应
+## 6. 版本记录
 
-- `422`：文档数组为空、字段缺失、`doc_id/file_path` 非法、`file_path` 非 PDF、文件不存在、PDF 内容为空
-- `500`：文档切分或 MySQL 写入异常
-
-### 2.2 索引构建 `POST /rag/index/build`
-
-#### 请求模型（FastAPI / Pydantic）
-
-- `BuildIndexRequest`
-  - `doc_ids: list[str] | None = None`（可选；为空时表示基于 MySQL 全量 chunk 构建索引）
-  - `force_rebuild: bool = True`（可选；是否强制全量重建目标索引）
-
-#### 成功响应 `200`
-
-- `BuildIndexResponse`
-  - `indexed_doc_count: int`（参与索引构建的文档数）
-  - `indexed_chunk_count: int`（参与索引构建的 chunk 数）
-  - `index_name: str`（当前索引名称）
-
-#### 失败响应
-
-- `422`：`doc_ids` 字段格式非法（非字符串数组、空字符串等）
-- `400`：MySQL 无可用 chunk（无法构建索引）
-- `500`：索引构建过程异常
-
-### 2.3 查询召回 `POST /rag/query`
-
-#### 请求模型（FastAPI / Pydantic）
-
-- `QueryRequest`
-  - `query: str`（必填，去空白后非空）
-  - `top_k: int = 3`（可选，必须 `>=1` 且 `<=20`）
-  - `filters: dict[str, Any] | None = None`（可选，元数据过滤）
-
-#### 成功响应 `200`
-
-- `RetrievedContext`
-  - `doc_id: str`
-  - `chunk_id: str`
-  - `chunk_text: str`
-  - `score: float`
-  - `metadata: dict[str, Any] | None`
-- `QueryResponse`
-  - `query: str`
-  - `top_k: int`
-  - `contexts: list[RetrievedContext]`
-  - `trace: dict[str, Any] | None`（可选调试信息）
-
-#### 失败响应
-
-- `422`：`query` 为空、`top_k` 非法
-- `400`：索引未初始化
-- `500`：检索过程异常
-
-### 2.4 健康检查 `GET /rag/health`
-
-#### 成功响应 `200`
-
-- `HealthResponse`
-  - `status: str`（固定为 `ok`）
-  - `index_ready: bool`（索引是否可用）
-  - `indexed_docs: int`（已入库文档数）
-  - `indexed_chunks: int`（已入库 chunk 数）
-
-### 2.5 错误响应统一结构
-
-- `ErrorResponse`
-  - `error_code: str`（如 `VALIDATION_ERROR`、`INDEX_NOT_READY`）
-  - `message: str`（错误说明）
-  - `detail: dict[str, Any] | None`（可选详情）
-
-### 2.6 字段级校验规则（Pydantic 对齐）
-
-> 本节用于约束实现阶段的 Pydantic `Field` 校验，不满足规则时统一返回 `422`。
-
-#### `IndexDocument` 字段校验
-
-| 字段 | 类型 | 必填 | 校验规则 | 错误示例 |
-|---|---|---|---|---|
-| `doc_id` | `str` | 是 | `strip` 后长度 `1-128` | 空字符串、全空白、长度超限 |
-| `file_path` | `str` | 是 | `strip` 后长度 `>=1`，且必须是本地 `.pdf` 文件路径 | 空字符串、全空白、非 PDF 路径 |
-| `metadata` | `dict[str, Any]` | 否 | 若传入必须是对象类型 | 传入数组、字符串、数字 |
-
-#### `IndexRequest` 字段校验
-
-| 字段 | 类型 | 必填 | 校验规则 | 错误示例 |
-|---|---|---|---|---|
-| `documents` | `list[IndexDocument]` | 是 | 列表长度 `>=1` | 空数组、缺失字段 |
-
-#### `QueryRequest` 字段校验
-
-| 字段 | 类型 | 必填 | 校验规则 | 错误示例 |
-|---|---|---|---|---|
-| `query` | `str` | 是 | `strip` 后长度 `>=1` | 空字符串、全空白 |
-| `top_k` | `int` | 否 | 默认 `3`，范围 `1-20` | `0`、负数、超过上限、非整数 |
-| `filters` | `dict[str, Any]` | 否 | 若传入必须是对象类型 | 传入数组、字符串、数字 |
-
-#### `RetrievedContext` 字段校验
-
-| 字段 | 类型 | 必填 | 校验规则 | 说明 |
-|---|---|---|---|---|
-| `doc_id` | `str` | 是 | 非空 | 来源文档标识 |
-| `chunk_id` | `str` | 是 | 非空 | chunk 标识 |
-| `chunk_text` | `str` | 是 | 非空 | 召回文本 |
-| `score` | `float` | 是 | 有限浮点数 | 相似度分数 |
-| `metadata` | `dict[str, Any]` | 否 | 可为空对象 | 透传元信息 |
-
-#### `ErrorResponse` 字段校验
-
-| 字段 | 类型 | 必填 | 校验规则 | 说明 |
-|---|---|---|---|---|
-| `error_code` | `str` | 是 | 非空，推荐大写下划线风格 | 如 `VALIDATION_ERROR` |
-| `message` | `str` | 是 | 非空 | 人可读错误信息 |
-| `detail` | `dict[str, Any]` | 否 | 可为空对象 | 字段级错误详情 |
-
-## 3. 核心处理流程
-
-1. 接收本地 `file_path` 并读取 PDF 文本内容
-2. 按固定策略切分为 chunk
-3. 将 chunk 与 metadata 写入 MySQL
-4. 索引构建阶段从 MySQL 读取 chunk 与 metadata
-5. 对读取到的 chunk 进行向量化并写入索引
-6. 查询时对问题向量化并召回 `Top-K`，返回召回片段与检索轨迹信息
-
-## 4. 关键规则与边界
-
-- `query` 去除首尾空白后不能为空
-- `top_k` 必须为正整数，默认 `3`
-- `file_path` 仅支持 `.pdf`，且必须是可读取的本地文件
-- 当召回为空时，返回空 `contexts` 数组
-- 返回的 `contexts` 数量不超过 `top_k`
-- 同一 `doc_id` 重复入库按“覆盖旧 chunk 数据”处理
-- 索引构建数据源固定为 MySQL，不直接读取本地 PDF
-
-### 4.1 MySQL 落库规则（新增）
-
-- 仅保留 chunk 表，按 `doc_id` 与 `chunk_index` 唯一存储，记录 chunk 文本与 chunk 级 metadata
-- 不在 MySQL 中存储原始文档内容或文档主记录
-- 检索结果中的 `chunk_id` 使用数据库主键 `id` 的字符串形式返回
-- 文档覆盖入库时，按 `doc_id` 删除历史 chunk 后再批量写入新 chunk
-- 索引构建阶段按需从 MySQL 读取 `chunk_text` 与 `metadata` 生成向量索引
-
-### 4.2 MySQL 表结构设计（新增）
-
-> 建表 SQL 见：`spec/sql/mysql_schema.sql`
-
-1. `rag_chunks`（分片表）
-   - `id`: bigint 主键，自增
-   - `doc_id`: varchar(128)，来源文档业务 ID
-   - `chunk_index`: int，分片序号（从 0 开始）
-   - `chunk_text`: longtext，分片原文
-   - `metadata`: json，分片级 metadata
-   - `created_at`: datetime(3)，创建时间
-   - 唯一索引：`uk_doc_chunk_index(doc_id, chunk_index)`
-   - 查询索引：`idx_doc_id(doc_id)`
-
-## 5. 测试策略（新增）
-
-### 5.1 测试分层
-
-- 单元测试：切分、参数校验、召回结果格式化逻辑
-- 集成测试：入库 -> 查询的端到端检索链路
-- 回归测试：固定问答样例集合，迭代后必须全通过
-
-### 5.2 覆盖目标
-
-- 接口覆盖：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
-- 规则覆盖：空输入、非法 `top_k`、索引未初始化、召回为空
-- 结果覆盖：召回结构完整、上下文数量与质量符合约束
-
-## 6. 测试用例清单（新增）
-
-> 覆盖结论（当前代码）：测试用例维度覆盖完整（接口、边界、回归均有）。  
-> 最近一次执行结果（2026-07-12）：共 12 条，`通过 11`，`预期失败 1`（已知差距）。
-
-| case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
-|---|---|---|---|---|---|---|
-| `rag_index_ok_001` | integration | 正常入库 2 个本地 PDF | `documents=[{doc_id,file_path}, ...]` | `200`；`indexed_count=2`；`chunk_count>0` | 已执行-通过 | 返回 `200`，`indexed_count=2`，`chunk_count=26` |
-| `rag_index_fail_empty_001` | integration | 空文档数组入库 | `documents=[]` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_index_fail_non_pdf_001` | integration | 非 PDF 路径入库 | `file_path="docs/a.txt"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_index_fail_file_not_found_001` | integration | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_query_fail_empty_001` | integration | 空查询 | `query=""` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` | 已执行-通过 | 返回 `400`，错误码 `INDEX_NOT_READY` |
-| `rag_query_ok_001` | integration | 正常查询并返回证据 | `query="..." , top_k=3` | `200`；`contexts` 长度 `<=3` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `3` |
-| `rag_query_ok_topk_001` | integration | 自定义 top_k 生效 | `query="..." , top_k=5` | `200`；`contexts` 长度 `<=5` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `5` |
-| `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok` | 已执行-通过 | 返回 `200`，`status=ok` |
-| `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） | 已执行-通过 | 返回 `200`，召回文本命中 `11009` 与 `30s/30秒` 关键线索 |
-| `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` | 已执行-预期失败 | 实际返回非空 `contexts`，当前实现缺少低相关阈值过滤（已在测试中 xfail 标记） |
-
-## 7. 测试沉淀规则（新增）
-
-- 每新增一个功能点，至少新增 1 条成功用例 + 1 条失败用例
-- 每修复一个缺陷，必须新增对应回归用例
-- 回归用例按 `case_id` 长期保留，不允许随意删除
-- 任何发布前，回归集必须全量通过
-
-## 8. 开发流程约束
-
-每次迭代严格执行：
-1. 先在 spec 补充需求与验收标准
-2. 先补测试设计，再写实现
-3. 完成后执行测试并记录结果
-4. 把新增用例纳入回归集
-
-## 9. 当前状态
-
-- 核心接口已完成实现：`/rag/index`、`/rag/query`、`/rag/health`
-- 入库模式已确定为：通过本地 `file_path` 读取 PDF 后构建索引
-- Embedding 模型已确定并实现为：`text-embedding-v4`（阿里云百炼兼容 OpenAI 接口）
-
+- `v0.3`（2026-07-13）：重构为主文档 + 子文档结构，支持渐进式披露
