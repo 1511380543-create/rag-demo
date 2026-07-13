@@ -5,8 +5,9 @@
 
 ## 1. 当前状态
 
-- 核心接口已完成实现：`/rag/index`、`/rag/query`、`/rag/health`
-- 入库模式已实现：通过本地 `file_path` 读取 PDF 后构建索引
+- 核心接口已完成实现：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
+- 入库模式已实现：通过本地 `file_path` 读取 PDF，切分后写入 MySQL `rag_chunks`
+- 索引构建已实现：从 MySQL 读取 `chunks/metadata` 构建向量索引
 - Embedding 模型已实现：`text-embedding-v4`（阿里云百炼兼容 OpenAI 接口）
 
 ## 2. 目标状态（spec 目标）
@@ -21,9 +22,8 @@
 
 ## 3. 已知差距
 
-- 当前实现接口与目标接口命名不一致（`/rag/index` vs `/rag/chunks` + `/rag/index/build`）
-- 当前实现流程未完全拆分（切分与索引构建尚未彻底解耦）
-- 当前实现尚未完成 MySQL chunk 持久化主链路
+- 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
+- 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
 
 ## 4. 迭代记录
 

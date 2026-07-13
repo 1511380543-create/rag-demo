@@ -50,7 +50,7 @@
 ### 3.3 失败响应
 
 - `422`：`doc_ids` 字段格式非法（非字符串数组、空字符串等）
-- `400`：MySQL 无可用 chunk（无法构建索引）
+- `400`：MySQL 无可用 chunk（无法构建索引，错误码 `NO_CHUNKS_FOR_INDEX`）
 - `500`：索引构建过程异常
 
 ## 4. 查询召回 `POST /rag/query`
@@ -95,7 +95,7 @@
 ## 6. 统一错误响应结构
 
 - `ErrorResponse`
-  - `error_code: str`（如 `VALIDATION_ERROR`、`INDEX_NOT_READY`）
+  - `error_code: str`（如 `VALIDATION_ERROR`、`INDEX_NOT_READY`、`NO_CHUNKS_FOR_INDEX`）
   - `message: str`（错误说明）
   - `detail: dict[str, Any] | None`（可选详情）
 

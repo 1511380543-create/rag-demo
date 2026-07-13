@@ -18,20 +18,23 @@
 ## 3. 测试用例清单
 
 > 覆盖结论（当前代码）：测试用例维度覆盖完整（接口、边界、回归均有）。  
-> 最近一次执行结果（2026-07-12）：共 12 条，`通过 11`，`预期失败 1`（已知差距）。
+> 最近一次执行结果（2026-07-13）：共 15 条，`通过 14`，`预期失败 1`（已知差距）。
 
 | case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
 |---|---|---|---|---|---|---|
-| `rag_index_ok_001` | integration | 正常入库 2 个本地 PDF | `documents=[{doc_id,file_path}, ...]` | `200`；`indexed_count=2`；`chunk_count>0` | 已执行-通过 | 返回 `200`，`indexed_count=2`，`chunk_count=26` |
-| `rag_index_fail_empty_001` | integration | 空文档数组入库 | `documents=[]` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_index_fail_non_pdf_001` | integration | 非 PDF 路径入库 | `file_path="docs/a.txt"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_index_fail_file_not_found_001` | integration | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_chunks_ok_001` | integration | 正常切分入库 2 个本地 PDF | `documents=[{doc_id,file_path}, ...]` | `200`；`stored_doc_count=2`；`stored_chunk_count>0` | 已执行-通过 | 返回 `200`，字段值与预期一致 |
+| `rag_chunks_fail_empty_001` | integration | 空文档数组切分入库 | `documents=[]` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_chunks_fail_non_pdf_001` | integration | 非 PDF 路径切分入库 | `file_path="docs/a.txt"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_chunks_fail_file_not_found_001` | integration | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_index_build_fail_no_chunks_001` | integration | 未入库 chunk 直接构建索引 | `force_rebuild=true` | `400` + `NO_CHUNKS_FOR_INDEX` | 已执行-通过 | 返回 `400`，错误码正确 |
+| `rag_index_build_fail_invalid_doc_ids_001` | integration | 构建索引参数非法 | `doc_ids=["ok","   "]` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_index_build_ok_001` | integration | 正常构建索引 | 已入库 chunks + `force_rebuild=true` | `200`；`indexed_doc_count=2`；`indexed_chunk_count>0` | 已执行-通过 | 返回 `200`，字段值与预期一致 |
 | `rag_query_fail_empty_001` | integration | 空查询 | `query=""` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
 | `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` | 已执行-通过 | 返回 `400`，错误码 `INDEX_NOT_READY` |
 | `rag_query_ok_001` | integration | 正常查询并返回证据 | `query="..." , top_k=3` | `200`；`contexts` 长度 `<=3` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `3` |
 | `rag_query_ok_topk_001` | integration | 自定义 top_k 生效 | `query="..." , top_k=5` | `200`；`contexts` 长度 `<=5` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `5` |
 | `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok` | 已执行-通过 | 返回 `200`，`status=ok` |
+| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok`；`indexed_docs/chunks` 有效 | 已执行-通过 | 返回 `200`，统计字段有效 |
 | `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） | 已执行-通过 | 返回 `200`，召回文本命中 `11009` 与 `30s/30秒` 关键线索 |
 | `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` | 已执行-预期失败 | 实际返回非空 `contexts`，当前实现缺少低相关阈值过滤（已在测试中 xfail 标记） |
 
