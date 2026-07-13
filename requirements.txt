@@ -5,3 +5,4 @@ llama-index-embeddings-openai
 openai
 pydantic-settings
 pypdf
+pymysql

@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
     index_name: str = "local_rag_index"
+    mysql_host: str = Field(default="127.0.0.1", alias="MYSQL_HOST")
+    mysql_port: int = Field(default=3306, alias="MYSQL_PORT")
+    mysql_user: str = Field(default="root", alias="MYSQL_USER")
+    mysql_password: str = Field(default="root", alias="MYSQL_PASSWORD")
+    mysql_database: str = Field(default="rag_demo", alias="MYSQL_DATABASE")
 
     model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
@@ -23,6 +28,21 @@ class Settings(BaseSettings):
         if not api_key:
             raise ValueError("环境变量 API_KEY_ALI 不能为空")
         return api_key
+
+    @field_validator("mysql_host", "mysql_user", "mysql_password", "mysql_database")
+    @classmethod
+    def validate_mysql_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("MySQL 配置不能为空")
+        return cleaned
+
+    @field_validator("mysql_port")
+    @classmethod
+    def validate_mysql_port(cls, value: int) -> int:
+        if value <= 0 or value > 65535:
+            raise ValueError("MySQL 端口必须在 1-65535 之间")
+        return value
 
 
 @lru_cache(maxsize=1)

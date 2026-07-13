@@ -22,9 +22,33 @@ class IndexRequest(BaseModel):
     documents: list[IndexDocument] = Field(min_length=1)
 
 
-class IndexResponse(BaseModel):
-    indexed_count: int
-    chunk_count: int
+class ChunkIngestResponse(BaseModel):
+    stored_doc_count: int
+    stored_chunk_count: int
+
+
+class BuildIndexRequest(BaseModel):
+    doc_ids: list[str] | None = None
+    force_rebuild: bool = True
+
+    @field_validator("doc_ids")
+    @classmethod
+    def validate_doc_ids(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+
+        normalized: list[str] = []
+        for item in value:
+            cleaned = item.strip()
+            if not cleaned:
+                raise ValueError("doc_ids 中不允许出现空字符串")
+            normalized.append(cleaned)
+        return normalized
+
+
+class BuildIndexResponse(BaseModel):
+    indexed_doc_count: int
+    indexed_chunk_count: int
     index_name: str
 
 

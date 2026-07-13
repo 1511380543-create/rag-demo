@@ -6,8 +6,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.models import ErrorResponse, HealthResponse, IndexRequest, IndexResponse, QueryRequest, QueryResponse
-from app.rag_service import IndexNotReadyError, RagService
+from app.models import (
+    BuildIndexRequest,
+    BuildIndexResponse,
+    ChunkIngestResponse,
+    ErrorResponse,
+    HealthResponse,
+    IndexRequest,
+    QueryRequest,
+    QueryResponse,
+)
+from app.rag_service import IndexNotReadyError, NoChunksAvailableError, RagService
 
 
 def _load_settings():
@@ -62,17 +71,55 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
     )
 
 
-@app.post("/rag/index", response_model=IndexResponse)
-async def index_documents(request: IndexRequest) -> IndexResponse:
+@app.post("/rag/chunks", response_model=ChunkIngestResponse)
+async def ingest_chunks(request: IndexRequest) -> ChunkIngestResponse:
     try:
-        indexed_count, chunk_count, index_name = rag_service.index_documents(request.documents)
-        return IndexResponse(indexed_count=indexed_count, chunk_count=chunk_count, index_name=index_name)
+        stored_doc_count, stored_chunk_count = rag_service.ingest_documents(request.documents)
+        return ChunkIngestResponse(stored_doc_count=stored_doc_count, stored_chunk_count=stored_chunk_count)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(
             status_code=422,
             detail={
                 "error_code": "VALIDATION_ERROR",
                 "message": "本地文档读取失败，请检查 file_path 与文档格式",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "CHUNK_INGEST_ERROR",
+                "message": "文档切分或 MySQL 写入异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.post("/rag/index/build", response_model=BuildIndexResponse)
+async def build_index(request: BuildIndexRequest) -> BuildIndexResponse:
+    try:
+        indexed_doc_count, indexed_chunk_count, index_name = rag_service.build_index(request)
+        return BuildIndexResponse(
+            indexed_doc_count=indexed_doc_count,
+            indexed_chunk_count=indexed_chunk_count,
+            index_name=index_name,
+        )
+    except NoChunksAvailableError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "NO_CHUNKS_FOR_INDEX",
+                "message": str(exc),
+                "detail": None,
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VALIDATION_ERROR",
+                "message": "索引构建参数非法",
                 "detail": {"reason": str(exc)},
             },
         ) from exc
