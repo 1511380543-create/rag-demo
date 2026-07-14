@@ -26,13 +26,11 @@
 - 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
 - 监控与测评能力当前仅完成 spec 设计，代码尚未实现
 
-## 4. 监控与测评（规划中）
+## 4. 监控与测评（设计完成，待实现）
 
-- 设计状态：已完成 spec 设计，权威文档见 `spec/architecture/07_observability_and_eval.md`
-- 监控：新增 `GET /rag/metrics` 与 `rag_query_logs` 表，采集查询延迟、召回与分数指标
+- 设计状态：已完成 spec 设计，范围与后续设想以 `spec/architecture/07_observability_and_eval.md` §5、§6 为准
+- 监控：新增 `GET /rag/metrics` 与 `rag_query_logs` 表
 - 测评：新增 `/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs` 接口与 `rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items` 表
-- 分数处理：本轮只“记录分数”，不做阈值过滤与分数降级；阈值过滤 + 分数降级为后续规划
-- 已知差距：`rag_retrieval_empty_reg_001`（低相关空召回）本轮不闭环，留待后续阈值/降级能力
 - 实现状态：待实现（本轮仅更新 spec，待提交 git 云端后再进入代码实现）
 
 ## 5. 迭代记录

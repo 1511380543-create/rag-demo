@@ -210,7 +210,6 @@
   - `hit: int`（`0/1`）
   - `recall: float`
   - `mrr: float`
-  - `ndcg: float`
   - `latency_ms: int`
   - `retrieved_chunk_ids: list[str]`
 - `EvalRunResponse`
@@ -220,7 +219,6 @@
   - `avg_hit: float`
   - `avg_recall: float`
   - `avg_mrr: float`
-  - `avg_ndcg: float`
   - `avg_latency_ms: float`
   - `items: list[EvalMetricItem]`
 
@@ -245,7 +243,6 @@
   - `avg_hit: float`
   - `avg_recall: float`
   - `avg_mrr: float`
-  - `avg_ndcg: float`
   - `avg_latency_ms: float`
   - `note: str | None`
   - `created_at: str`

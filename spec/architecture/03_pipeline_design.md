@@ -108,7 +108,7 @@
 处理：
 
 1. 逐条样本调用检索链路（读取当前内存索引，不触发重建）
-2. 按 ground truth 计算 `hit@k`/`recall@k`/`mrr@k`/`ndcg@k` 与 `latency_ms`
+2. 按 ground truth 计算 `hit@k`/`recall@k`/`mrr@k` 与 `latency_ms`（本轮不启用 `nDCG`）
 3. 写入 `rag_eval_runs` 汇总与 `rag_eval_run_items` 明细
 
 输出：

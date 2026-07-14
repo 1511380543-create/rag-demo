@@ -92,7 +92,6 @@ export MYSQL_DATABASE="rag_demo"
 - `avg_hit`: double，平均命中率
 - `avg_recall`: double，平均召回率
 - `avg_mrr`: double，平均 MRR
-- `avg_ndcg`: double，平均 nDCG
 - `avg_latency_ms`: double，平均检索延迟
 - `note`: varchar(255)，本轮备注（可空）
 - `created_at`: datetime(3)，创建时间
@@ -106,7 +105,6 @@ export MYSQL_DATABASE="rag_demo"
 - `hit`: tinyint，是否命中（`0/1`）
 - `recall`: double，单条召回率
 - `mrr`: double，单条 MRR
-- `ndcg`: double，单条 nDCG
 - `latency_ms`: int，单条检索耗时（毫秒）
 - `retrieved_chunk_ids`: json，实际召回的 chunk_id 列表
 - `created_at`: datetime(3)，创建时间
