@@ -26,15 +26,28 @@
 - 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
 - 监控与测评能力已实现：监控埋点、指标聚合、评测集管理与评测执行
 
-## 4. 监控与测评（设计完成，待实现）
+## 4. 监控与测评（已实现）
 
 - 设计状态：已完成 spec 设计，范围与后续设想以 `spec/architecture/07_observability_and_eval.md` §5、§6 为准
-- 监控：新增 `GET /rag/metrics` 与 `rag_query_logs` 表
-- 测评：新增 `/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs` 接口与 `rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items` 表
-- 实现状态：已实现（监控埋点、指标聚合、评测集管理与评测执行）
+- 监控（已实现）：
+  - 接口：`GET /rag/metrics`
+  - 数据表：`rag_query_logs`
+  - 能力：`/rag/query` 请求内同步埋点、失败查询同样写库、监控写库异常不影响查询响应
+- 测评（已实现）：
+  - 接口：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`、`POST /rag/eval/run`、`GET /rag/eval/runs`
+  - 数据表：`rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items`
+  - 能力：评测集 upsert、离线批量检索测评、历史轮次查看
+- 测试状态：
+  - 监控：4 条自动化用例已实现并通过（见 `05` §3.1）
+  - 测评：13 条自动化用例已实现并通过（见 `05` §3.2）
 
 ## 5. 迭代记录
 
+- 2026-07-15：
+  - 监控与测评能力完成代码实现，spec 同步更新为已实现状态
+  - 监控：`rag_query_logs` 写入与 `GET /rag/metrics` 聚合已落地
+  - 测评：评测集管理、`POST /rag/eval/run` 执行与 `GET /rag/eval/runs` 历史查询已落地
+  - 监控与测评自动化测试全部落地：监控 4 条 + 测评 13 条（`pytest tests/ -q`，32 通过 / 1 xfail）
 - 2026-07-13：
   - 明确 MySQL 只存 chunk 与 metadata，不存原始文档
   - 明确切分入库与索引构建必须拆分为两个阶段

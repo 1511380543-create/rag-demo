@@ -125,8 +125,9 @@ export MYSQL_DATABASE="rag_demo"
   - 按 `doc_ids`（可选）读取 chunk 数据
   - 读取字段至少包含：`doc_id`、`chunk_text`、`metadata`
 - 监控日志：
-  - 每次 `/rag/query` 处理结束后写入一条 `rag_query_logs`
+  - 每次 `/rag/query` 处理结束后写入一条 `rag_query_logs`（成功与失败均写入）
   - 仅追加写入，不做更新与删除
+  - `/rag/eval/run` 不写入 `rag_query_logs`（测评复用检索逻辑，但不经过 `/rag/query` 埋点）
 - 评测集：
   - 按 `case_id` upsert 到 `rag_eval_dataset`
 - 评测执行：

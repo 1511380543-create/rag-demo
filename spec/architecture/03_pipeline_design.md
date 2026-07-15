@@ -104,12 +104,14 @@
 输入：
 
 - 评测集样本（`query_text` + ground truth + 可选 `top_k`）
+- 可选筛选：`case_ids`（指定样本）或全量 `enabled=true` 样本
 
 处理：
 
-1. 逐条样本调用检索链路（读取当前内存索引，不触发重建）
-2. 按 ground truth 计算 `hit@k`/`recall@k`/`mrr@k` 与 `latency_ms`（本轮不启用 `nDCG`）
-3. 写入 `rag_eval_runs` 汇总与 `rag_eval_run_items` 明细
+1. 逐条样本复用内部检索逻辑（读取当前内存索引，不触发重建，不经过 `/rag/query`）
+2. 单条 `top_k` 优先级：请求级 `top_k` > 样本级 `top_k` > 默认 `3`
+3. 按 ground truth 计算 `hit@k`/`recall@k`/`mrr@k` 与 `latency_ms`（本轮不启用 `nDCG`）
+4. 写入 `rag_eval_runs` 汇总与 `rag_eval_run_items` 明细
 
 输出：
 
@@ -119,6 +121,8 @@
 
 - 评测集管理：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`
 - 执行与查看：`POST /rag/eval/run`、`GET /rag/eval/runs`
+
+> 说明：测评不写入 `rag_query_logs`，不影响 `GET /rag/metrics` 的在线查询统计。
 
 ## 3. 关键解耦约束
 

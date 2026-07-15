@@ -157,7 +157,9 @@
 ### 8.3 失败响应
 
 - `422`：`window_minutes` 非法（非正整数）
-- `500`：监控数据读取异常
+- `500`：监控数据读取异常（错误码 `METRICS_READ_ERROR`）
+
+> 说明：无查询记录时各聚合字段返回 `0`，`window_minutes` 原样回显。
 
 ## 9. 评测样本管理 `POST /rag/eval/dataset`
 
@@ -183,7 +185,7 @@
 ### 9.3 失败响应
 
 - `422`：样本数组为空、字段非法、两类标注均缺失
-- `500`：写库异常
+- `500`：写库异常（错误码 `EVAL_DATASET_UPSERT_ERROR`）
 
 ## 10. 评测样本列表 `GET /rag/eval/dataset`
 
@@ -193,14 +195,20 @@
   - `cases: list[EvalCase]`
   - `total: int`
 
+### 10.2 失败响应
+
+- `500`：评测样本读取异常（错误码 `EVAL_DATASET_READ_ERROR`）
+
 ## 11. 执行测评 `POST /rag/eval/run`
 
 ### 11.1 请求模型
 
 - `EvalRunRequest`
-  - `case_ids: list[str] | None = None`（可选；为空表示全量启用样本）
+  - `case_ids: list[str] | None = None`（可选；为空时执行全部 `enabled=true` 样本；传入时按 ID 匹配，不受 `enabled` 限制）
   - `top_k: int | None = None`（可选；覆盖样本级 `top_k`，范围 `1-20`）
   - `note: str | None = None`（可选，本轮备注）
+
+> 单条样本实际检索 `top_k` 优先级：请求级 `top_k` > 样本级 `top_k` > 默认 `3`。
 
 ### 11.2 成功响应 `200`
 
@@ -215,7 +223,7 @@
 - `EvalRunResponse`
   - `run_id: int`（评测轮次 ID）
   - `dataset_size: int`（参与评测样本数）
-  - `top_k: int`（本轮实际 `top_k`）
+  - `top_k: int`（响应回显字段；未传请求级 `top_k` 时固定为 `3`）
   - `avg_hit: float`
   - `avg_recall: float`
   - `avg_mrr: float`
@@ -226,7 +234,9 @@
 
 - `422`：`case_ids`、`top_k` 字段格式非法
 - `400`：索引未初始化（`INDEX_NOT_READY`）或评测集为空（`EVAL_DATASET_EMPTY`）
-- `500`：评测执行异常
+- `500`：评测执行异常（错误码 `EVAL_RUN_ERROR`）
+
+> 说明：测评复用内部检索逻辑，不经过 `/rag/query`，不写入 `rag_query_logs`。
 
 ## 12. 评测历史 `GET /rag/eval/runs`
 
@@ -253,4 +263,4 @@
 ### 12.3 失败响应
 
 - `422`：`limit` 非法
-- `500`：评测历史读取异常
+- `500`：评测历史读取异常（错误码 `EVAL_RUNS_READ_ERROR`）
