@@ -1,7 +1,7 @@
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -11,12 +11,19 @@ from app.models import (
     BuildIndexResponse,
     ChunkIngestResponse,
     ErrorResponse,
+    EvalDatasetListResponse,
+    EvalDatasetUpsertRequest,
+    EvalDatasetUpsertResponse,
+    EvalRunListResponse,
+    EvalRunRequest,
+    EvalRunResponse,
     HealthResponse,
     IndexRequest,
+    MetricsResponse,
     QueryRequest,
     QueryResponse,
 )
-from app.rag_service import IndexNotReadyError, NoChunksAvailableError, RagService
+from app.rag_service import EvalDatasetEmptyError, IndexNotReadyError, NoChunksAvailableError, RagService
 
 
 def _load_settings():
@@ -157,3 +164,98 @@ async def query(request: QueryRequest) -> QueryResponse:
 @app.get("/rag/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return rag_service.health()
+
+
+@app.get("/rag/metrics", response_model=MetricsResponse)
+async def metrics(window_minutes: int | None = Query(default=None, ge=1)) -> MetricsResponse:
+    try:
+        return rag_service.get_metrics(window_minutes)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "METRICS_READ_ERROR",
+                "message": "监控数据读取异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.post("/rag/eval/dataset", response_model=EvalDatasetUpsertResponse)
+async def upsert_eval_dataset(request: EvalDatasetUpsertRequest) -> EvalDatasetUpsertResponse:
+    try:
+        upserted_count = rag_service.upsert_eval_dataset(request.cases)
+        return EvalDatasetUpsertResponse(upserted_count=upserted_count)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "EVAL_DATASET_UPSERT_ERROR",
+                "message": "评测样本写入异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.get("/rag/eval/dataset", response_model=EvalDatasetListResponse)
+async def list_eval_dataset() -> EvalDatasetListResponse:
+    try:
+        return rag_service.list_eval_dataset()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "EVAL_DATASET_READ_ERROR",
+                "message": "评测样本读取异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.post("/rag/eval/run", response_model=EvalRunResponse)
+async def run_eval(request: EvalRunRequest) -> EvalRunResponse:
+    try:
+        return rag_service.run_eval(request)
+    except IndexNotReadyError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "INDEX_NOT_READY", "message": str(exc), "detail": None},
+        ) from exc
+    except EvalDatasetEmptyError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "EVAL_DATASET_EMPTY", "message": str(exc), "detail": None},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VALIDATION_ERROR",
+                "message": "评测参数非法",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "EVAL_RUN_ERROR",
+                "message": "评测执行异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.get("/rag/eval/runs", response_model=EvalRunListResponse)
+async def list_eval_runs(limit: int = Query(default=20, ge=1, le=100)) -> EvalRunListResponse:
+    try:
+        return rag_service.list_eval_runs(limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "EVAL_RUNS_READ_ERROR",
+                "message": "评测历史读取异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc

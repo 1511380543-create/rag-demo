@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class IndexDocument(BaseModel):
@@ -92,3 +92,122 @@ class ErrorResponse(BaseModel):
     error_code: str = Field(min_length=1)
     message: str = Field(min_length=1)
     detail: dict[str, Any] | None = None
+
+
+class MetricsResponse(BaseModel):
+    window_minutes: int | None = None
+    total_queries: int
+    empty_recall_count: int
+    empty_recall_rate: float
+    avg_total_ms: float
+    p95_total_ms: float
+    avg_embed_ms: float
+    avg_retrieve_ms: float
+    avg_top_score: float
+
+
+class EvalCase(BaseModel):
+    case_id: str = Field(min_length=1, max_length=128)
+    query_text: str = Field(min_length=1)
+    relevant_chunk_ids: list[str] | None = None
+    expected_keywords: list[str] | None = None
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    enabled: bool = True
+
+    @field_validator("case_id", "query_text")
+    @classmethod
+    def validate_non_empty_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("字段不能为空白")
+        return cleaned
+
+    @field_validator("relevant_chunk_ids", "expected_keywords")
+    @classmethod
+    def validate_str_list(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for item in value:
+            cleaned = item.strip()
+            if not cleaned:
+                raise ValueError("标注列表中不允许出现空字符串")
+            normalized.append(cleaned)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_ground_truth(self) -> "EvalCase":
+        # 两类标注至少提供其一，否则无法判定命中。
+        if not self.relevant_chunk_ids and not self.expected_keywords:
+            raise ValueError("relevant_chunk_ids 与 expected_keywords 至少提供其一")
+        return self
+
+
+class EvalDatasetUpsertRequest(BaseModel):
+    cases: list[EvalCase] = Field(min_length=1)
+
+
+class EvalDatasetUpsertResponse(BaseModel):
+    upserted_count: int
+
+
+class EvalDatasetListResponse(BaseModel):
+    cases: list[EvalCase]
+    total: int
+
+
+class EvalRunRequest(BaseModel):
+    case_ids: list[str] | None = None
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    note: str | None = None
+
+    @field_validator("case_ids")
+    @classmethod
+    def validate_case_ids(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for item in value:
+            cleaned = item.strip()
+            if not cleaned:
+                raise ValueError("case_ids 中不允许出现空字符串")
+            normalized.append(cleaned)
+        return normalized
+
+
+class EvalMetricItem(BaseModel):
+    case_id: str
+    query_text: str
+    hit: int
+    recall: float
+    mrr: float
+    latency_ms: int
+    retrieved_chunk_ids: list[str]
+
+
+class EvalRunResponse(BaseModel):
+    run_id: int
+    dataset_size: int
+    top_k: int
+    avg_hit: float
+    avg_recall: float
+    avg_mrr: float
+    avg_latency_ms: float
+    items: list[EvalMetricItem]
+
+
+class EvalRunSummary(BaseModel):
+    run_id: int
+    dataset_size: int
+    top_k: int
+    avg_hit: float
+    avg_recall: float
+    avg_mrr: float
+    avg_latency_ms: float
+    note: str | None = None
+    created_at: str
+
+
+class EvalRunListResponse(BaseModel):
+    runs: list[EvalRunSummary]
+    total: int

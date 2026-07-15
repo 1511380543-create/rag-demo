@@ -24,14 +24,14 @@
 
 - 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
 - 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
-- 监控与测评能力当前仅完成 spec 设计，代码尚未实现
+- 监控与测评能力已实现：监控埋点、指标聚合、评测集管理与评测执行
 
 ## 4. 监控与测评（设计完成，待实现）
 
 - 设计状态：已完成 spec 设计，范围与后续设想以 `spec/architecture/07_observability_and_eval.md` §5、§6 为准
 - 监控：新增 `GET /rag/metrics` 与 `rag_query_logs` 表
 - 测评：新增 `/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs` 接口与 `rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items` 表
-- 实现状态：待实现（本轮仅更新 spec，待提交 git 云端后再进入代码实现）
+- 实现状态：已实现（监控埋点、指标聚合、评测集管理与评测执行）
 
 ## 5. 迭代记录
 

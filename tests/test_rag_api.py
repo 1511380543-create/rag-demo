@@ -107,11 +107,122 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         def count_chunks(self) -> int:
             return len(self._rows)
 
+    class InMemoryMonitoringStore:
+        """测试使用的内存监控存储。"""
+
+        def __init__(self, settings=None, **_kwargs) -> None:
+            self._logs: list = []
+
+        def insert_query_log(self, item) -> None:
+            self._logs.append(item)
+
+        def aggregate_metrics(self, window_minutes: int | None):
+            from app.monitoring_store import MetricsResult
+
+            total_queries = len(self._logs)
+            if total_queries == 0:
+                return MetricsResult(
+                    window_minutes=window_minutes,
+                    total_queries=0,
+                    empty_recall_count=0,
+                    empty_recall_rate=0.0,
+                    avg_total_ms=0.0,
+                    p95_total_ms=0.0,
+                    avg_embed_ms=0.0,
+                    avg_retrieve_ms=0.0,
+                    avg_top_score=0.0,
+                )
+
+            empty_recall_count = sum(1 for item in self._logs if item.is_empty_recall)
+            top_scores = [item.top_score for item in self._logs if item.top_score is not None]
+            return MetricsResult(
+                window_minutes=window_minutes,
+                total_queries=total_queries,
+                empty_recall_count=empty_recall_count,
+                empty_recall_rate=empty_recall_count / total_queries,
+                avg_total_ms=sum(item.total_ms for item in self._logs) / total_queries,
+                p95_total_ms=float(max(item.total_ms for item in self._logs)),
+                avg_embed_ms=sum(item.embed_ms for item in self._logs) / total_queries,
+                avg_retrieve_ms=sum(item.retrieve_ms for item in self._logs) / total_queries,
+                avg_top_score=(sum(top_scores) / len(top_scores)) if top_scores else 0.0,
+            )
+
+    class InMemoryEvalStore:
+        """测试使用的内存评测存储。"""
+
+        def __init__(self, settings=None, **_kwargs) -> None:
+            self._cases: dict[str, object] = {}
+            self._runs: list = []
+            self._run_items: list = []
+            self._next_run_id = 1
+
+        def upsert_cases(self, cases) -> int:
+            for case in cases:
+                self._cases[case.case_id] = case
+            return len(cases)
+
+        def list_cases(self):
+            return sorted(self._cases.values(), key=lambda item: item.case_id)
+
+        def fetch_cases(self, case_ids: list[str] | None):
+            rows = list(self._cases.values())
+            if case_ids:
+                case_set = set(case_ids)
+                rows = [row for row in rows if row.case_id in case_set]
+            else:
+                rows = [row for row in rows if row.enabled]
+            return sorted(rows, key=lambda item: item.case_id)
+
+        def insert_run(self, dataset_size, top_k, avg_hit, avg_recall, avg_mrr, avg_latency_ms, note):
+            run_id = self._next_run_id
+            self._next_run_id += 1
+            self._runs.append(
+                {
+                    "run_id": run_id,
+                    "dataset_size": dataset_size,
+                    "top_k": top_k,
+                    "avg_hit": avg_hit,
+                    "avg_recall": avg_recall,
+                    "avg_mrr": avg_mrr,
+                    "avg_latency_ms": avg_latency_ms,
+                    "note": note,
+                    "created_at": "2026-01-01 00:00:00",
+                }
+            )
+            return run_id
+
+        def insert_run_items(self, run_id, items) -> None:
+            self._run_items.extend(items)
+
+        def list_runs(self, limit: int):
+            from app.eval_store import EvalRunSummaryRow
+
+            selected = list(reversed(self._runs))[:limit]
+            return [
+                EvalRunSummaryRow(
+                    run_id=row["run_id"],
+                    dataset_size=row["dataset_size"],
+                    top_k=row["top_k"],
+                    avg_hit=row["avg_hit"],
+                    avg_recall=row["avg_recall"],
+                    avg_mrr=row["avg_mrr"],
+                    avg_latency_ms=row["avg_latency_ms"],
+                    note=row["note"],
+                    created_at=row["created_at"],
+                )
+                for row in selected
+            ]
+
+        def count_runs(self) -> int:
+            return len(self._runs)
+
     monkeypatch.setattr(qwen_embedding.QwenEmbedding, "_get_text_embedding", _fake_get_text_embedding)
     monkeypatch.setattr(qwen_embedding.QwenEmbedding, "_get_text_embeddings", _fake_get_text_embeddings)
     monkeypatch.setattr(qwen_embedding.QwenEmbedding, "_get_query_embedding", _fake_get_query_embedding)
     monkeypatch.setattr(qwen_embedding.QwenEmbedding, "_aget_query_embedding", _fake_aget_query_embedding)
     monkeypatch.setattr(rag_service_module, "MySQLChunkStore", InMemoryChunkStore)
+    monkeypatch.setattr(rag_service_module, "MonitoringStore", InMemoryMonitoringStore)
+    monkeypatch.setattr(rag_service_module, "EvalStore", InMemoryEvalStore)
 
     import app.main as main_module
 
