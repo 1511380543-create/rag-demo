@@ -12,6 +12,7 @@ class EvalCaseRow:
     query_text: str
     relevant_chunk_ids: list[str] | None
     expected_keywords: list[str] | None
+    keyword_match_mode: str
     top_k: int | None
     enabled: bool
 
@@ -53,12 +54,13 @@ class EvalStore:
     def upsert_cases(self, cases: list[EvalCaseRow]) -> int:
         upsert_sql = """
             INSERT INTO rag_eval_dataset
-                (case_id, query_text, relevant_chunk_ids, expected_keywords, top_k, enabled)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (case_id, query_text, relevant_chunk_ids, expected_keywords, keyword_match_mode, top_k, enabled)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 query_text = VALUES(query_text),
                 relevant_chunk_ids = VALUES(relevant_chunk_ids),
                 expected_keywords = VALUES(expected_keywords),
+                keyword_match_mode = VALUES(keyword_match_mode),
                 top_k = VALUES(top_k),
                 enabled = VALUES(enabled)
         """
@@ -68,6 +70,7 @@ class EvalStore:
                 case.query_text,
                 to_json(case.relevant_chunk_ids),
                 to_json(case.expected_keywords),
+                case.keyword_match_mode,
                 case.top_k,
                 1 if case.enabled else 0,
             )
@@ -81,7 +84,7 @@ class EvalStore:
 
     def list_cases(self) -> list[EvalCaseRow]:
         query = """
-            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, top_k, enabled
+            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, keyword_match_mode, top_k, enabled
             FROM rag_eval_dataset
             ORDER BY case_id ASC
         """
@@ -93,7 +96,7 @@ class EvalStore:
 
     def fetch_cases(self, case_ids: list[str] | None) -> list[EvalCaseRow]:
         query = """
-            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, top_k, enabled
+            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, keyword_match_mode, top_k, enabled
             FROM rag_eval_dataset
         """
         params: tuple[str, ...] = ()
@@ -204,6 +207,7 @@ class EvalStore:
             query_text=str(row["query_text"]),
             relevant_chunk_ids=list(relevant) if isinstance(relevant, list) else None,
             expected_keywords=list(keywords) if isinstance(keywords, list) else None,
+            keyword_match_mode=str(row["keyword_match_mode"]),
             top_k=int(row["top_k"]) if row["top_k"] is not None else None,
             enabled=int(row["enabled"]) == 1,
         )

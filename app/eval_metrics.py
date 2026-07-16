@@ -16,8 +16,14 @@ def _is_chunk_relevant(chunk_id: str, relevant_chunk_ids: list[str]) -> bool:
     return chunk_id in set(relevant_chunk_ids)
 
 
-def _is_text_relevant(chunk_text: str, expected_keywords: list[str]) -> bool:
+def _is_text_relevant(
+    chunk_text: str,
+    expected_keywords: list[str],
+    keyword_match_mode: str,
+) -> bool:
     lowered = chunk_text.lower()
+    if keyword_match_mode == "all":
+        return all(keyword.lower() in lowered for keyword in expected_keywords)
     return any(keyword.lower() in lowered for keyword in expected_keywords)
 
 
@@ -31,7 +37,11 @@ def _is_result_relevant(
     if case.relevant_chunk_ids:
         chunk_hit = _is_chunk_relevant(chunk_id, case.relevant_chunk_ids)
     if case.expected_keywords:
-        keyword_hit = _is_text_relevant(chunk_text, case.expected_keywords)
+        keyword_hit = _is_text_relevant(
+            chunk_text,
+            case.expected_keywords,
+            case.keyword_match_mode,
+        )
     if case.relevant_chunk_ids and case.expected_keywords:
         return chunk_hit or keyword_hit
     if case.relevant_chunk_ids:

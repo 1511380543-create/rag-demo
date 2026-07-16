@@ -18,6 +18,7 @@ def test_rag_eval_metrics_unit_keyword_001() -> None:
         query_text="测试查询",
         relevant_chunk_ids=None,
         expected_keywords=["11009"],
+        keyword_match_mode="any",
         top_k=None,
         enabled=True,
     )
@@ -38,6 +39,7 @@ def test_rag_eval_metrics_unit_chunk_001() -> None:
         query_text="测试查询",
         relevant_chunk_ids=["c1", "c2"],
         expected_keywords=None,
+        keyword_match_mode="any",
         top_k=None,
         enabled=True,
     )
@@ -58,6 +60,7 @@ def test_rag_eval_metrics_unit_dual_or_001() -> None:
         query_text="测试查询",
         relevant_chunk_ids=["missing-chunk"],
         expected_keywords=["keyword"],
+        keyword_match_mode="any",
         top_k=None,
         enabled=True,
     )
@@ -68,3 +71,31 @@ def test_rag_eval_metrics_unit_dual_or_001() -> None:
     )
     assert result.hit == 1
     assert result.mrr > 0
+
+
+def test_rag_eval_metrics_unit_keyword_all_001() -> None:
+    """备注：keyword_match_mode=all 时须全部关键词共现才判定相关。"""
+    case = EvalCaseRow(
+        case_id="kw-all-001",
+        query_text="测试查询",
+        relevant_chunk_ids=None,
+        expected_keywords=["11009", "心跳周期"],
+        keyword_match_mode="all",
+        top_k=None,
+        enabled=True,
+    )
+    partial = compute_eval_metrics(
+        case=case,
+        retrieved_chunk_ids=["chunk-a"],
+        retrieved_texts=["默认通信端口 11009"],
+    )
+    assert partial.hit == 0
+    assert partial.mrr == 0.0
+
+    full = compute_eval_metrics(
+        case=case,
+        retrieved_chunk_ids=["chunk-b"],
+        retrieved_texts=["默认通信端口 11009，心跳周期 30秒"],
+    )
+    assert full.hit == 1
+    assert full.mrr > 0

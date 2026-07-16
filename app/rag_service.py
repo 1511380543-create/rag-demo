@@ -212,6 +212,7 @@ class RagService:
                 query_text=case.query_text,
                 relevant_chunk_ids=case.relevant_chunk_ids,
                 expected_keywords=case.expected_keywords,
+                keyword_match_mode=case.keyword_match_mode,
                 top_k=case.top_k,
                 enabled=case.enabled,
             )
@@ -435,6 +436,7 @@ class RagService:
             query_text=row.query_text,
             relevant_chunk_ids=row.relevant_chunk_ids,
             expected_keywords=row.expected_keywords,
+            keyword_match_mode=row.keyword_match_mode,
             top_k=row.top_k,
             enabled=row.enabled,
         )

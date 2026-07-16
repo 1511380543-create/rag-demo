@@ -45,6 +45,7 @@ CASE_AUDIT_META: dict[str, AuditMeta] = {
     "rag_eval_metrics_unit_keyword_001": AuditMeta("hit=1 recall=0", "仅 keyword 指标计算"),
     "rag_eval_metrics_unit_chunk_001": AuditMeta("hit=1 recall=0.5 mrr=1", "仅 chunk 指标计算"),
     "rag_eval_metrics_unit_dual_or_001": AuditMeta("hit=1 mrr>0", "双标注 OR 规则"),
+    "rag_eval_metrics_unit_keyword_all_001": AuditMeta("部分命中 hit=0", "keyword_match_mode=all"),
 }
 
 

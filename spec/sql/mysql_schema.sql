@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `rag_eval_dataset` (
   `query_text` TEXT NOT NULL COMMENT '评测查询文本',
   `relevant_chunk_ids` JSON NULL COMMENT 'chunk级标注',
   `expected_keywords` JSON NULL COMMENT '关键词命中标注',
+  `keyword_match_mode` VARCHAR(8) NOT NULL DEFAULT 'any' COMMENT '关键词匹配模式:any任一/all全部',
   `top_k` INT UNSIGNED NULL COMMENT '样本级top_k',
   `enabled` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '是否参与评测:0否1是',
   `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',

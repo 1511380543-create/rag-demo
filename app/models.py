@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -111,6 +111,7 @@ class EvalCase(BaseModel):
     query_text: str = Field(min_length=1)
     relevant_chunk_ids: list[str] | None = None
     expected_keywords: list[str] | None = None
+    keyword_match_mode: Literal["any", "all"] = "any"
     top_k: int | None = Field(default=None, ge=1, le=20)
     enabled: bool = True
 

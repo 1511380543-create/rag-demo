@@ -75,6 +75,7 @@ export MYSQL_DATABASE="rag_demo"
 - `query_text`: text，评测查询文本
 - `relevant_chunk_ids`: json，chunk 级标注（可空）
 - `expected_keywords`: json，关键词命中标注（可空）
+- `keyword_match_mode`: varchar(8)，关键词匹配模式（`any`/`all`，默认 `any`）
 - `top_k`: int，样本级 `top_k`（可空）
 - `enabled`: tinyint，是否参与评测（`0/1`）
 - `created_at`: datetime(3)，创建时间

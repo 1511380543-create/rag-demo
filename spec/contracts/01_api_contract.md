@@ -170,6 +170,7 @@
   - `query_text: str`（必填，去空白后非空）
   - `relevant_chunk_ids: list[str] | None = None`（可选，chunk 级标注）
   - `expected_keywords: list[str] | None = None`（可选，关键词命中标注）
+  - `keyword_match_mode: "any" | "all" = "any"`（可选，关键词匹配模式）
   - `top_k: int | None = None`（可选，样本级 `top_k`，范围 `1-20`）
   - `enabled: bool = True`（可选，是否参与评测）
 - `EvalDatasetUpsertRequest`
