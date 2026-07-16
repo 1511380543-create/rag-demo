@@ -49,6 +49,7 @@
 - `spec/architecture/03_pipeline_design.md`：切分入库与索引构建解耦后的流程设计
 - `spec/architecture/04_non_functional_and_boundaries.md`：关键规则、边界条件、非功能约束
 - `spec/architecture/07_observability_and_eval.md`：监控与测评能力设计（权威文档）
+- `spec/eval/eval_dataset.json`：离线检索测评种子集（18 条，导入方式见 `07` §4.1）
 - `spec/testing/05_test_plan_and_cases.md`：测试分层、覆盖目标、回归用例清单
 - `spec/status/06_status_and_iteration_log.md`：当前状态、里程碑、已知差距与迭代记录
 

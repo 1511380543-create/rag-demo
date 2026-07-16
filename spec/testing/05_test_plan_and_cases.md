@@ -76,6 +76,22 @@
 | `rag_eval_metrics_unit_chunk_001` | unit | 仅 relevant_chunk_ids 命中 | 固定 `retrieved_chunk_ids` 含标注 ID | `hit=1`；`recall` 按命中比例；`mrr` 按首个命中排名 | 已执行-通过 | chunk 级精确标注 |
 | `rag_eval_metrics_unit_dual_or_001` | unit | 双标注 OR 判定 | chunk 未命中但 keyword 命中 | `hit=1`；`mrr>0` | 已执行-通过 | 对应 `07` §4.1 OR 规则 |
 
+## 3.3 业务测评集验收（离线，非 pytest）
+
+> 说明：本节与 §3.2 互补——§3.2 验证测评**系统**正确性（TDD）；本节定义业务**检索质量**验收（SDD 第一层）。  
+> 指标规则与门槛见 `07` §4；种子数据见 `spec/eval/eval_dataset.json`。
+
+| 验收项 | 执行方式 | 期望 | 备注 |
+|---|---|---|---|
+| 种子集导入 | 三份 PDF 入库 + 建索引；`POST /rag/eval/dataset` 导入 JSON | `upserted_count=18` | 同 `case_id` 可覆盖更新 |
+| 全量离线测评 | `POST /rag/eval/run`，`note` 标注轮次 | 返回 `avg_hit/avg_mrr/avg_latency_ms` | 不传 `top_k` 时各样本按自身或默认 `3` 执行 |
+| P0 核心样本 | `POST /rag/eval/run` 传 `case_ids`（见 `07` §4.5） | 逐条 `hit=1` | 发布前必查 |
+| 全量质量门槛 | 对比 `GET /rag/eval/runs` 与 baseline（`run_id=3`） | `avg_hit`、`avg_mrr` 不低于 baseline | 流程层验收，接口不自动拦截 |
+| 迭代记录 | 更新 `06` §5 | 记录 `run_id`、`avg_hit`、`avg_mrr`、`note` | 支持前后对比 |
+
+- 本验收**不纳入** `pytest` 默认门禁（依赖真实 embedding 与全量语料，执行成本高）
+- 检索链路变更（切分、embedding、top_k 策略）后必须重跑并更新 `06` baseline
+
 ## 4. 测试沉淀规则
 
 - 每新增一个功能点，至少新增 1 条成功用例 + 1 条失败用例

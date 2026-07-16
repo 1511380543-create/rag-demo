@@ -28,7 +28,7 @@
 
 ## 4. 监控与测评（已实现）
 
-- 设计状态：已完成 spec 设计，范围与后续设想以 `spec/architecture/07_observability_and_eval.md` §5、§6 为准
+- 设计状态：以 `spec/architecture/07_observability_and_eval.md` 为准
 - 监控（已实现）：
   - 接口：`GET /rag/metrics`
   - 数据表：`rag_query_logs`
@@ -37,12 +37,24 @@
   - 接口：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`、`POST /rag/eval/run`、`GET /rag/eval/runs`
   - 数据表：`rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items`
   - 能力：评测集 upsert、离线批量检索测评、历史轮次查看
+  - 种子集：`spec/eval/eval_dataset.json`（18 条；标准见 `07` §4）
+  - baseline：`run_id=3`，`avg_hit=0.333`，`avg_mrr=0.333`（18 条种子集，标注收紧后）
 - 测试状态：
   - 监控：4 条自动化用例已实现并通过（见 `05` §3.1）
   - 测评：13 条自动化用例已实现并通过（见 `05` §3.2）
 
 ## 5. 迭代记录
 
+- 2026-07-16（标注收紧）：
+  - 种子集改用语料内唯一锚点短语，减少 OR 关键词误命中
+  - 新增 `keyword_match_mode`（`any`/`all`），支持多词共现约束
+  - 已有库需执行：`ALTER TABLE rag_eval_dataset ADD COLUMN keyword_match_mode ...`（本机已执行）
+  - 首轮 baseline：`run_id=3`，`avg_hit=0.333`，`avg_mrr=0.333`，`avg_latency_ms=186.5`
+- 2026-07-15（测评标准补充）：
+  - 补充 `07` §4.6–§4.8：第一层检索测评标准、种子集引用、标注规范、流程层验收门槛
+  - 新增 `05` §3.3：业务测评集离线验收（与 TDD §3.2 互补）
+  - 新增种子集 `spec/eval/eval_dataset.json`（18 条，收紧关键词锚点 + `keyword_match_mode`）
+  - eval baseline：`run_id=3`，`avg_hit=0.333`，`avg_mrr=0.333`，`avg_latency_ms=186.5`（18 条种子集，标注收紧后；旧版宽松标注 `run_id=1` 为 `avg_hit=1.0`）
 - 2026-07-15：
   - 监控与测评能力完成代码实现，spec 同步更新为已实现状态
   - 监控：`rag_query_logs` 写入与 `GET /rag/metrics` 聚合已落地
