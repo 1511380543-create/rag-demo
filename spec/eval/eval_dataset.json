@@ -1,0 +1,138 @@
+{
+  "description": "基于 docs/ 下三份 PDF 构造的离线检索测评集，通过 POST /rag/eval/dataset 导入。关键词标注优先使用语料内唯一锚点短语；需同时命中多个词时使用 keyword_match_mode=all。",
+  "prerequisites": [
+    "三份 PDF 均已通过 /rag/chunks 入库",
+    "已通过 /rag/index/build 构建索引"
+  ],
+  "cases": [
+    {
+      "case_id": "eval-obd-port-heartbeat",
+      "query_text": "JT/T 809 协议默认通信端口和心跳周期是多少？",
+      "expected_keywords": ["11009", "心跳周期"],
+      "keyword_match_mode": "all",
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-obd-fault-report-id",
+      "query_text": "OBD 车辆故障码上报对应的报文 ID 是什么？",
+      "expected_keywords": ["0x6002"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-obd-heartbeat-msg-id",
+      "query_text": "809 协议中心跳报文和心跳应答的报文 ID 分别是什么？",
+      "expected_keywords": ["0x1005/0x1006"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-obd-transport-protocol",
+      "query_text": "JT/T 809 协议使用什么传输协议？是否支持 UDP？",
+      "expected_keywords": ["不支持UDP"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-obd-work-data-report",
+      "query_text": "车辆 OBD 工况数据上报报文的指令 ID 是什么？",
+      "expected_keywords": ["0x6001"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-obd-data-encoding",
+      "query_text": "809 协议中文和车辆信息采用什么编码格式？",
+      "expected_keywords": ["GB2312编码"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-obd-offline-cache",
+      "query_text": "OBD 设备离线时本地缓存容量至少多少条？",
+      "expected_keywords": ["缓存容量不少于1000"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-emission-scope",
+      "query_text": "国三排放标准柴油机动车报废管理标准的适用范围是什么？",
+      "expected_keywords": ["第五条 车型分类适用范围"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-emission-effective-date",
+      "query_text": "国三柴油车报废管理标准自何时起施行？",
+      "expected_keywords": ["本标准自2026年07月01日起"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-emission-force-scrap-age-operating",
+      "query_text": "国三中重型营运柴油货车强制报废的使用年限是多少？",
+      "expected_keywords": ["中重型营运柴油货车", "使用年限满8年"],
+      "keyword_match_mode": "all",
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-emission-mileage-light",
+      "query_text": "轻型国三柴油车累计行驶里程达到多少公里应强制报废？",
+      "expected_keywords": ["60万公里"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-emission-subsidy-heavy-operating",
+      "query_text": "国三中重型营运柴油货车提前报废的单车补贴标准是多少？",
+      "expected_keywords": ["单车补贴12000-20000元"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-emission-danger-truck-age",
+      "query_text": "国三柴油危险品运输车辆强制报废的使用年限是多少？",
+      "expected_keywords": ["危险品运输车辆", "使用年限满7年"],
+      "keyword_match_mode": "all",
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-heavy-diesel-scope-mass",
+      "query_text": "重型柴油车免年检手册适用的车辆总质量门槛是多少？",
+      "expected_keywords": ["总质量3.5吨及以上"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-heavy-diesel-obd-terminal",
+      "query_text": "申请重型柴油车免年检需要安装什么车载终端？",
+      "expected_keywords": ["车载终端（OBD终端）"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-heavy-diesel-data-rate",
+      "query_text": "免年检车辆检验周期内数据传输有效率要求不低于多少？",
+      "expected_keywords": ["数据传输有效率不低于98%"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-heavy-diesel-revoke-over-emission",
+      "query_text": "免检车辆在什么情况下会立即撤销免年检资格？",
+      "expected_keywords": ["立即撤销当期免年检资格"],
+      "top_k": 5,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-heavy-diesel-exempt-boundary",
+      "query_text": "重型柴油车免年检具体豁免了哪些检验项目？",
+      "expected_keywords": ["豁免年度尾气排放上线检验"],
+      "top_k": 5,
+      "enabled": true
+    }
+  ]
+}
