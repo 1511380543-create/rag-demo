@@ -5,23 +5,25 @@
 
 ## 1. 当前状态
 
-- 核心接口已完成实现：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
-- 入库模式已实现：通过本地 `file_path` 读取 PDF，切分后写入 MySQL `rag_chunks`
-- 索引构建已实现：从 MySQL 读取 `chunks/metadata` 构建向量索引
-- Embedding 模型已实现：`text-embedding-v4`（阿里云百炼兼容 OpenAI 接口）
+- 核心接口已实现：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health` 及监控/测评接口
+- **当前实现**：`/rag/chunks` 仍为一站式「读 PDF + 切块」（旧流程）
+- **spec 目标**（v0.5，待实现）：抽取/切块分离，见 `08_document_extraction.md`
 
-## 2. 目标状态（spec 目标）
+## 2. 目标状态（spec 目标 v0.5）
 
-- 目标接口：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
+- 目标接口：`/rag/extract`、`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
 - 目标流程：
-  - 阶段一：本地读取与切分，写入 MySQL `rag_chunks`
-  - 阶段二：从 MySQL 读取 `chunks/metadata` 构建向量索引
+  - 阶段一：`SimpleDirectoryReader` + `UnstructuredReader` 抽取 → TextCleaner 清洗 → 续表合并 → `rag_documents`
+  - 阶段二：读 `full_text` → 现有 `SentenceSplitter` 切块 → `rag_chunks`
+  - 阶段三：从 `rag_chunks` 构建向量索引
 - 目标存储：
-  - MySQL 只存 `chunks/metadata`
-  - 原始文档不入 MySQL
+  - `rag_documents`：抽取中间层（blocks + full_text，表格为 HTML）
+  - `rag_chunks`：切块结果
+  - 原始 PDF 不入 MySQL
 
 ## 3. 已知差距
 
+- **抽取链路未实现**（spec 已定义，代码仍为 pypdf 一站式入库）
 - 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
 - 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
 - 监控与测评能力已实现：监控埋点、指标聚合、评测集管理与评测执行
@@ -37,14 +39,28 @@
   - 接口：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`、`POST /rag/eval/run`、`GET /rag/eval/runs`
   - 数据表：`rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items`
   - 能力：评测集 upsert、离线批量检索测评、历史轮次查看
-  - 种子集：`spec/eval/eval_dataset.json`（18 条；标准见 `07` §4）
-  - baseline：`run_id=3`，`avg_hit=0.333`，`avg_mrr=0.333`（18 条种子集，标注收紧后）
+  - 种子集：`spec/eval/eval_dataset.json`（18 条）
 - 测试状态：
   - 监控：4 条自动化用例已实现并通过（见 `05` §3.1）
   - 测评：13 条自动化用例已实现并通过（见 `05` §3.2）
 
-## 5. 迭代记录
+## 5. 测评 baseline 与门禁
 
+- **语料**：`docs/` 下三份 PDF；种子集 `spec/eval/eval_dataset.json`（18 条）
+- **导入**：PDF 入库 + 建索引后，`POST /rag/eval/dataset` 导入 JSON
+- **baseline**（`run_id=3`）：`avg_hit=0.333`，`avg_mrr=0.333`，`avg_latency_ms=186.5`
+- **主指标**：`avg_hit`；辅指标：`avg_mrr`；性能观测：`avg_latency_ms`（环比，不单独阻断）
+- **迭代门禁**：`avg_hit`、`avg_mrr` 不低于 baseline
+- **P0 样本**（发布前逐条 `hit=1`）：`eval-obd-port-heartbeat`、`eval-obd-fault-report-id`、`eval-emission-scope`、`eval-heavy-diesel-obd-terminal`、`eval-heavy-diesel-data-rate`
+- **标注要点**：用语料内唯一锚点短语；多词共现设 `keyword_match_mode=all`
+
+## 6. 迭代记录
+
+- 2026-07-17（文档抽取 spec v0.5）：
+  - 新增 `08_document_extraction.md`：LlamaIndex + Unstructured 抽取、TextCleaner 清洗、表格 HTML、续表合并
+  - 流程拆为三阶段：抽取（`rag_documents`）→ 切块（`full_text`）→ 索引（`rag_chunks`）
+  - 同步更新 `01`/`02`/`03`/`04` API 与数据模型；切块逻辑 spec 明确保持不变
+  - 代码尚未实现，当前仍为旧版一站式 `/rag/chunks`
 - 2026-07-16（标注收紧）：
   - 种子集改用语料内唯一锚点短语，减少 OR 关键词误命中
   - 新增 `keyword_match_mode`（`any`/`all`），支持多词共现约束

@@ -11,7 +11,9 @@
 
 ## 2. 覆盖目标
 
-- 接口覆盖：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
+- 接口覆盖（已实现）：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
+- 接口覆盖（v0.5 待实现）：`/rag/extract`；`/rag/chunks` 改为 `doc_ids` 入参
+- 抽取链路覆盖（v0.5 待实现）：TextCleaner 清洗、表格 HTML 持久化、续表合并、`DOCUMENT_NOT_EXTRACTED`
 - 监控接口覆盖：`/rag/metrics`
 - 测评接口覆盖：`/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs`
 - 规则覆盖：空输入、非法 `top_k`、非法 `window_minutes`、索引未初始化、召回为空、评测集为空、`enabled` 样本筛选、`case_ids` 精确匹配
@@ -66,7 +68,7 @@
 | `rag_eval_dataset_fail_empty_001` | integration | 空样本数组 | `cases=[]` | `422` | 已执行-通过 | 边界校验 |
 | `rag_eval_dataset_fail_no_gt_001` | integration | 缺少 ground truth | 两类标注均缺失 | `422` | 已执行-通过 | 至少提供其一 |
 | `rag_eval_run_ok_001` | integration | 正常执行测评（固定语料） | OBD 单文档入库 + 建索引；样本 query 与 `rag_retrieval_reg_001` 一致；`expected_keywords=["11009","30s","30秒"]`；样本级 `top_k=10` | `200`；`run_id>0`；`avg_hit=1.0`；`avg_recall/avg_mrr` 在 `0-1`；`avg_latency_ms>=0`；`items` 逐条含 `retrieved_chunk_ids` | 已执行-通过 | 测试环境 hash 向量下关键线索需更大 top_k；`latency_ms` 不以 `0-1` 约束 |
-| `rag_eval_run_enabled_filter_001` | integration | 禁用样本默认不参与 | 写入 `enabled=true` 与 `enabled=false` 各 1 条；`POST /rag/eval/run` 不传 `case_ids` | `200`；`dataset_size=1`；仅执行 enabled 样本 | 已执行-通过 | 对应 `07` §4.1 样本筛选规则 |
+| `rag_eval_run_enabled_filter_001` | integration | 禁用样本默认不参与 | 写入 `enabled=true` 与 `enabled=false` 各 1 条；`POST /rag/eval/run` 不传 `case_ids` | `200`；`dataset_size=1`；仅执行 enabled 样本 | 已执行-通过 | 对应 `07` §3.2 样本筛选规则 |
 | `rag_eval_run_case_ids_override_001` | integration | 指定 case_ids 忽略 enabled | 写入 `enabled=false` 样本；`POST /rag/eval/run` 传对应 `case_ids` | `200`；`dataset_size=1`；该样本被执行 | 已执行-通过 | 传 `case_ids` 时不受 `enabled` 限制 |
 | `rag_eval_run_no_monitor_pollution_001` | integration | 测评不写入监控日志 | 记录 run 前监控计数；执行 `POST /rag/eval/run` | `GET /rag/metrics` 的 `total_queries` 不增加 | 已执行-通过 | 架构约束：测评复用检索但不经过 `/rag/query` 埋点 |
 | `rag_eval_run_fail_no_index_001` | integration | 未建索引执行测评 | 未 build 索引 | `400` + `INDEX_NOT_READY` | 已执行-通过 | 状态校验 |
@@ -74,18 +76,18 @@
 | `rag_eval_runs_list_001` | integration | 评测历史查询 | 执行测评后 `GET /rag/eval/runs?limit=10` | `200`；`total>=1`；最新轮次 `run_id/avg_hit/note` 与 run 响应一致 | 已执行-通过 | 支持迭代前后对比 |
 | `rag_eval_metrics_unit_keyword_001` | unit | 仅 expected_keywords 命中 | 固定 `retrieved_texts` 含关键词 | `hit=1`；`recall=0.0`；`mrr>0` | 已执行-通过 | 仅 keyword 模式不计算 recall |
 | `rag_eval_metrics_unit_chunk_001` | unit | 仅 relevant_chunk_ids 命中 | 固定 `retrieved_chunk_ids` 含标注 ID | `hit=1`；`recall` 按命中比例；`mrr` 按首个命中排名 | 已执行-通过 | chunk 级精确标注 |
-| `rag_eval_metrics_unit_dual_or_001` | unit | 双标注 OR 判定 | chunk 未命中但 keyword 命中 | `hit=1`；`mrr>0` | 已执行-通过 | 对应 `07` §4.1 OR 规则 |
+| `rag_eval_metrics_unit_dual_or_001` | unit | 双标注 OR 判定 | chunk 未命中但 keyword 命中 | `hit=1`；`mrr>0` | 已执行-通过 | 对应 `07` §3.3 OR 规则 |
 
 ## 3.3 业务测评集验收（离线，非 pytest）
 
 > 说明：本节与 §3.2 互补——§3.2 验证测评**系统**正确性（TDD）；本节定义业务**检索质量**验收（SDD 第一层）。  
-> 指标规则与门槛见 `07` §4；种子数据见 `spec/eval/eval_dataset.json`。
+> 指标规则见 `07` §3；baseline 与门禁见 `06` §5；种子数据见 `spec/eval/eval_dataset.json`。
 
 | 验收项 | 执行方式 | 期望 | 备注 |
 |---|---|---|---|
 | 种子集导入 | 三份 PDF 入库 + 建索引；`POST /rag/eval/dataset` 导入 JSON | `upserted_count=18` | 同 `case_id` 可覆盖更新 |
 | 全量离线测评 | `POST /rag/eval/run`，`note` 标注轮次 | 返回 `avg_hit/avg_mrr/avg_latency_ms` | 不传 `top_k` 时各样本按自身或默认 `3` 执行 |
-| P0 核心样本 | `POST /rag/eval/run` 传 `case_ids`（见 `07` §4.5） | 逐条 `hit=1` | 发布前必查 |
+| P0 核心样本 | `POST /rag/eval/run` 传 `case_ids`（见 `06` §5） | 逐条 `hit=1` | 发布前必查 |
 | 全量质量门槛 | 对比 `GET /rag/eval/runs` 与 baseline（`run_id=3`） | `avg_hit`、`avg_mrr` 不低于 baseline | 流程层验收，接口不自动拦截 |
 | 迭代记录 | 更新 `06` §5 | 记录 `run_id`、`avg_hit`、`avg_mrr`、`note` | 支持前后对比 |
 

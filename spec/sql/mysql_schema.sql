@@ -8,6 +8,25 @@ CREATE DATABASE IF NOT EXISTS `rag_demo`
 
 USE `rag_demo`;
 
+-- 抽取文档表：存储 PDF 抽取后的 blocks 与 full_text
+CREATE TABLE IF NOT EXISTS `rag_documents` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `doc_id` VARCHAR(128) NOT NULL COMMENT '业务文档ID',
+  `file_path` VARCHAR(512) NOT NULL COMMENT '抽取时的本地PDF路径',
+  `extract_version` VARCHAR(64) NOT NULL COMMENT '抽取器版本',
+  `page_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '有效页数',
+  `char_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'full_text字符数',
+  `full_text` LONGTEXT NOT NULL COMMENT '供切块层读取的全文',
+  `blocks` JSON NOT NULL COMMENT '有序块数组(paragraph/table html)',
+  `extract_report` JSON NULL COMMENT '抽取统计报告',
+  `metadata` JSON NULL COMMENT '文档级元数据',
+  `content_hash` CHAR(64) NOT NULL COMMENT 'full_text内容哈希',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_doc_id` (`doc_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG抽取文档表';
+
 -- 分片表：仅存储每个文档切分后的chunk文本与元数据
 CREATE TABLE IF NOT EXISTS `rag_chunks` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',

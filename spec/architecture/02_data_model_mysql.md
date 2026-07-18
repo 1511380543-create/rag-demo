@@ -5,10 +5,10 @@
 
 ## 1. 设计原则
 
-- MySQL 只存储 `chunk_text` 与 `metadata`
-- 不存储原始文档内容，不维护文档主表
+- MySQL 存储抽取中间层（`rag_documents`）与切块结果（`rag_chunks`）
+- 不存储原始 PDF 文件
 - 通过 `doc_id + chunk_index` 保证文档内分片唯一性
-- 索引构建必须以 MySQL 为数据源
+- 索引构建必须以 `rag_chunks` 为数据源；切块必须以 `rag_documents.full_text` 为数据源
 
 ## 2. 连接配置
 
@@ -32,7 +32,37 @@ export MYSQL_DATABASE="rag_demo"
 
 ## 3. 表结构
 
-### 3.1 `rag_chunks`
+### 3.1 `rag_documents`（抽取中间层）
+
+- `id`: bigint 主键，自增
+- `doc_id`: varchar(128)，业务文档 ID
+- `file_path`: varchar(512)，抽取时的本地 PDF 路径
+- `extract_version`: varchar(64)，抽取器版本（如 `llamaindex-unstructured-v1`）
+- `page_count`: int，无符号，有效页数
+- `char_count`: int，无符号，`full_text` 字符数
+- `full_text`: longtext，供切块层读取的唯一文本输入
+- `blocks`: json，有序块数组（paragraph / table html）
+- `extract_report`: json，抽取统计（过滤、续表合并等，可空）
+- `metadata`: json，文档级元数据（可空）
+- `content_hash`: char(64)，`full_text` 内容哈希
+- `created_at`: datetime(3)，创建时间
+- `updated_at`: datetime(3)，更新时间
+
+索引约束：
+
+- 唯一索引：`uk_doc_id(doc_id)`
+
+`blocks` 元素约定：
+
+| 字段 | paragraph | table |
+|------|-----------|-------|
+| `type` | `"paragraph"` | `"table"` |
+| `order` | int | int |
+| `text` | 正文 | — |
+| `html` | — | Unstructured 输出的 HTML |
+| `logical_table_id` | — | 可选，续表合并后的逻辑表 ID |
+
+### 3.2 `rag_chunks`
 
 - `id`: bigint 主键，自增
 - `doc_id`: varchar(128)，来源文档业务 ID
@@ -46,7 +76,7 @@ export MYSQL_DATABASE="rag_demo"
 - 唯一索引：`uk_doc_chunk_index(doc_id, chunk_index)`
 - 查询索引：`idx_doc_id(doc_id)`
 
-### 3.2 `rag_query_logs`（监控）
+### 3.3 `rag_query_logs`（监控）
 
 - `id`: bigint 主键，自增
 - `query_text`: text，查询文本
@@ -68,7 +98,7 @@ export MYSQL_DATABASE="rag_demo"
 
 - 查询索引：`idx_created_at(created_at)`
 
-### 3.3 `rag_eval_dataset`（评测集）
+### 3.4 `rag_eval_dataset`（评测集）
 
 - `id`: bigint 主键，自增
 - `case_id`: varchar(128)，评测用例业务 ID
@@ -85,7 +115,7 @@ export MYSQL_DATABASE="rag_demo"
 
 - 唯一索引：`uk_case_id(case_id)`
 
-### 3.4 `rag_eval_runs`（评测轮次汇总）
+### 3.5 `rag_eval_runs`（评测轮次汇总）
 
 - `id`: bigint 主键，自增（即 `run_id`）
 - `dataset_size`: int，参与评测样本数
@@ -97,7 +127,7 @@ export MYSQL_DATABASE="rag_demo"
 - `note`: varchar(255)，本轮备注（可空）
 - `created_at`: datetime(3)，创建时间
 
-### 3.5 `rag_eval_run_items`（评测逐条明细）
+### 3.6 `rag_eval_run_items`（评测逐条明细）
 
 - `id`: bigint 主键，自增
 - `run_id`: bigint，关联 `rag_eval_runs.id`
@@ -116,14 +146,16 @@ export MYSQL_DATABASE="rag_demo"
 
 ## 4. 数据生命周期规则
 
-- 新文档入库：
-  - 从本地 PDF 读取并切分
-  - 将每个 chunk 写入 `rag_chunks`
-- 文档覆盖入库（同 `doc_id`）：
-  - 先按 `doc_id` 删除历史 chunk
-  - 再批量写入新 chunk
+- 新文档抽取：
+  - 从本地 PDF 抽取，经 TextCleaner 清洗与续表合并
+  - 写入 `rag_documents`（`full_text` + `blocks`）
+- 文档覆盖抽取（同 `doc_id`）：
+  - 先删除旧 `rag_documents` 记录，再写入新记录
+- 文档切块：
+  - 从 `rag_documents.full_text` 读取，**不读本地 PDF**
+  - 覆盖写入 `rag_chunks`（同 `doc_id` 先删后写）
 - 索引构建：
-  - 按 `doc_ids`（可选）读取 chunk 数据
+  - 按 `doc_ids`（可选）读取 `rag_chunks`
   - 读取字段至少包含：`doc_id`、`chunk_text`、`metadata`
 - 监控日志：
   - 每次 `/rag/query` 处理结束后写入一条 `rag_query_logs`（成功与失败均写入）

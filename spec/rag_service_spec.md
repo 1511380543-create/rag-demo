@@ -13,7 +13,8 @@
 
 ### 2.1 核心目标
 
-- 文档切分入库：从本地 `file_path` 读取 PDF，切分后写入 MySQL
+- 文档抽取入库：从本地 PDF 抽取正文与表格（HTML），写入 MySQL `rag_documents`
+- 文档切块入库：从 `rag_documents.full_text` 切分，写入 MySQL `rag_chunks`
 - 索引构建：从 MySQL 读取 `chunks/metadata` 构建向量索引
 - 查询检索：基于向量索引进行 `Top-K` 召回
 - 监控观测：采集查询链路的延迟、召回与分数指标并聚合暴露
@@ -22,8 +23,9 @@
 ### 2.2 本阶段范围
 
 - 文档类型：`pdf`
-- 数据存储：MySQL 存 `chunk_text` 与 `metadata`，不存原始文档
-- 索引构建数据源：固定为 MySQL
+- 抽取引擎：LlamaIndex `SimpleDirectoryReader` + `UnstructuredReader`
+- 数据存储：MySQL 存抽取结果（`rag_documents`）与 chunk（`rag_chunks`），不存原始 PDF
+- 索引构建数据源：固定为 MySQL `rag_chunks`
 
 ### 2.3 非目标范围
 
@@ -46,21 +48,24 @@
 
 - `spec/contracts/01_api_contract.md`：接口契约、请求响应、错误码、字段校验
 - `spec/architecture/02_data_model_mysql.md`：MySQL 配置、表结构、索引与数据覆盖规则
-- `spec/architecture/03_pipeline_design.md`：切分入库与索引构建解耦后的流程设计
+- `spec/architecture/03_pipeline_design.md`：抽取、切块与索引构建解耦后的流程设计
+- `spec/architecture/08_document_extraction.md`：PDF 抽取、TextCleaner 清洗、表格 HTML 与续表合并（权威文档）
 - `spec/architecture/04_non_functional_and_boundaries.md`：关键规则、边界条件、非功能约束
 - `spec/architecture/07_observability_and_eval.md`：监控与测评能力设计（权威文档）
-- `spec/eval/eval_dataset.json`：离线检索测评种子集（18 条，导入方式见 `07` §4.1）
+- `spec/eval/eval_dataset.json`：离线检索测评种子集（18 条，baseline 见 `06` §5）
 - `spec/testing/05_test_plan_and_cases.md`：测试分层、覆盖目标、回归用例清单
 - `spec/status/06_status_and_iteration_log.md`：当前状态、里程碑、已知差距与迭代记录
 
 ## 5. 全局一致性约束
 
 - 接口与数据模型变更，必须同步更新 `01`、`02`、`03` 三份子文档
+- 抽取能力变更，必须同步更新 `08` 文档，并联动 `01`、`02`、`03`
 - 监控与测评能力变更，必须同步更新 `07` 文档，并联动 `01`、`02`
 - 测试策略与回归用例变更，必须同步更新 `05` 文档
 - 版本状态与实际实现差异，必须同步更新 `06` 文档
 
 ## 6. 版本记录
 
-- `v0.3`（2026-07-13）：重构为主文档 + 子文档结构，支持渐进式披露
+- `v0.5`（2026-07-17）：新增文档抽取阶段设计（`08`），抽取/切块/API/数据模型同步调整；表格存 HTML，续表在抽取层合并；切块逻辑保持不变
 - `v0.4`（2026-07-13）：新增监控与测评能力设计（子文档 `07`），同步更新接口、数据模型与测试计划
+- `v0.3`（2026-07-13）：重构为主文档 + 子文档结构，支持渐进式披露
