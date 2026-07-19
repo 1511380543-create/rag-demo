@@ -22,8 +22,8 @@
 
 处理：
 
-1. `SimpleDirectoryReader` + `UnstructuredReader` 加载 PDF 元素
-2. `Document[]` → `TextNode[]`
+1. 原生 `unstructured.partition_pdf` 加载 PDF 元素（`hi_res` + 表格结构推断）
+2. `Element[]` → 内部节点（段落 / 表格）
 3. TextCleaner 清洗链（段落过滤，Table 跳过文本清洗）
 4. 跨页续表合并（Table HTML）
 5. 渲染 `full_text` 与 `blocks`，覆盖写入 `rag_documents`

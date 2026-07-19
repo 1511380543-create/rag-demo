@@ -6,14 +6,23 @@
 ## 1. 测试分层
 
 - 单元测试：切分、参数校验、召回结果格式化逻辑、评测指标计算（`eval_metrics.py`）
-- 集成测试：切分入库 -> 索引构建 -> 查询召回链路
+- 契约/集成测试：`extract → chunks → index/build → query` 链路（`tests/test_rag_api.py`）
 - 回归测试：固定问答样例集合，迭代后必须全通过
+
+### 1.1 抽取相关测试边界（重要）
+
+| 层级 | 测什么 | 当前状态 |
+|------|--------|----------|
+| 契约层（pytest 默认） | `/rag/extract`、`/rag/chunks` 入参校验、错误码、编排流程 | **已实现**；`PdfExtractPipeline` 在 fixture 中替换为 `TestPdfExtractPipeline`（pypdf 模拟） |
+| 实现层（真实 Unstructured） | `partition_pdf(hi_res)`、表格 HTML、TextCleaner、续表合并 | **未纳入默认 pytest**；需本地 curl / 手工验收（见 `08`、操作手册） |
+
+规则：契约层通过 ≠ 真实 Unstructured 抽取可用；发布前需在 conda `rag-demo` 环境手工打通 `/rag/extract`。
 
 ## 2. 覆盖目标
 
-- 接口覆盖（已实现）：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
-- 接口覆盖（v0.5 待实现）：`/rag/extract`；`/rag/chunks` 改为 `doc_ids` 入参
-- 抽取链路覆盖（v0.5 待实现）：TextCleaner 清洗、表格 HTML 持久化、续表合并、`DOCUMENT_NOT_EXTRACTED`
+- 接口覆盖（已实现）：`/rag/extract`、`/rag/chunks`（`doc_ids`）、`/rag/index/build`、`/rag/query`、`/rag/health`
+- 抽取契约覆盖（已实现）：空 documents、非 PDF、文件不存在、双文档抽取成功、`DOCUMENT_NOT_EXTRACTED`
+- 抽取实现覆盖（待补自动化）：真实 `partition_pdf`、TextCleaner、表格 HTML 持久化、续表合并（标记为 integration，默认不跑）
 - 监控接口覆盖：`/rag/metrics`
 - 测评接口覆盖：`/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs`
 - 规则覆盖：空输入、非法 `top_k`、非法 `window_minutes`、索引未初始化、召回为空、评测集为空、`enabled` 样本筛选、`case_ids` 精确匹配
@@ -21,29 +30,42 @@
 
 ## 3. 测试用例清单
 
-> 覆盖结论（当前代码）：核心链路 + 监控 + 测评用例已全覆盖（接口、边界、回归、指标计算均有）。  
-> 最近一次执行结果（2026-07-15）：共 32 条，`通过 31`，`预期失败 1`（已知差距）。  
-> 执行命令：`pytest tests/ -q`（监控子集：`pytest tests/ -q -k metrics`；测评子集：`pytest tests/ -q -k eval`）。
+> 覆盖结论（当前代码）：抽取契约 + 切块/索引/查询 + 监控 + 测评用例已覆盖。  
+> 最近一次执行结果（2026-07-19）：共 37 条，`通过 36`，`预期失败 1`（已知差距）。  
+> 执行命令：`pytest tests/ -q`（需在 conda `rag-demo` 解释器下执行）。
+
+### 3.0 抽取与切块用例（已实现，契约层）
+
+> 说明：以下用例写入 `tests/test_rag_api.py`。  
+> 测试环境：`PdfExtractPipeline` → `TestPdfExtractPipeline`（pypdf）；`MySQLDocumentStore` / `MySQLChunkStore` → 内存实现；不调用真实 Unstructured。
 
 | case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
 |---|---|---|---|---|---|---|
-| `rag_chunks_ok_001` | integration | 正常切分入库 2 个本地 PDF | `documents=[{doc_id,file_path}, ...]` | `200`；`stored_doc_count=2`；`stored_chunk_count>0` | 已执行-通过 | 返回 `200`，字段值与预期一致 |
-| `rag_chunks_fail_empty_001` | integration | 空文档数组切分入库 | `documents=[]` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_chunks_fail_non_pdf_001` | integration | 非 PDF 路径切分入库 | `file_path="docs/a.txt"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_chunks_fail_file_not_found_001` | integration | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
+| `rag_extract_ok_001` | contract | 双文档抽取成功 | `documents=[{doc_id,file_path}, ...]`（2 份 PDF） | `200`；`extracted_doc_count=2`；`total_page_count>0`；`total_char_count>0` | 已执行-通过 | mock pipeline |
+| `rag_extract_fail_empty_001` | contract | 空文档数组抽取 | `documents=[]` | `422` | 已执行-通过 | 边界校验 |
+| `rag_extract_fail_non_pdf_001` | contract | 非 PDF 路径抽取 | `file_path="docs/a.txt"` | `422` | 已执行-通过 | 仅支持 PDF |
+| `rag_extract_fail_file_not_found_001` | contract | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 已执行-通过 | 文件存在性校验 |
+| `rag_chunks_ok_001` | contract | 先抽取后切块 | 先 `/rag/extract`，再 `doc_ids=[...]` | `200`；`stored_doc_count=2`；`stored_chunk_count>0` | 已执行-通过 | 三阶段流程契约 |
+| `rag_chunks_fail_empty_001` | contract | 空 doc_ids 切块 | `doc_ids=[]` | `422` | 已执行-通过 | 边界校验 |
+| `rag_chunks_fail_not_extracted_001` | contract | 未抽取直接切块 | `doc_ids=["missing-doc"]` | `400` + `DOCUMENT_NOT_EXTRACTED` | 已执行-通过 | 阶段解耦约束 |
+
+### 3.1 索引 / 查询 / 回归用例（已实现）
+
+| case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
+|---|---|---|---|---|---|---|
 | `rag_index_build_fail_no_chunks_001` | integration | 未入库 chunk 直接构建索引 | `force_rebuild=true` | `400` + `NO_CHUNKS_FOR_INDEX` | 已执行-通过 | 返回 `400`，错误码正确 |
 | `rag_index_build_fail_invalid_doc_ids_001` | integration | 构建索引参数非法 | `doc_ids=["ok","   "]` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_index_build_ok_001` | integration | 正常构建索引 | 已入库 chunks + `force_rebuild=true` | `200`；`indexed_doc_count=2`；`indexed_chunk_count>0` | 已执行-通过 | 返回 `200`，字段值与预期一致 |
+| `rag_index_build_ok_001` | integration | 正常构建索引 | extract+chunks 后 `force_rebuild=true` | `200`；`indexed_doc_count=2`；`indexed_chunk_count>0` | 已执行-通过 | 返回 `200`，字段值与预期一致 |
 | `rag_query_fail_empty_001` | integration | 空查询 | `query=""` | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` | 已执行-通过 | 返回 `400`，错误码 `INDEX_NOT_READY` |
+| `rag_query_fail_no_index_001` | integration | 未建索引直接查询 | `query="什么是RAG"` | `400` + `INDEX_NOT_READY` | 已执行-通过 | 返回 `400`，错误码正确 |
 | `rag_query_ok_001` | integration | 正常查询并返回证据 | `query="..." , top_k=3` | `200`；`contexts` 长度 `<=3` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `3` |
 | `rag_query_ok_topk_001` | integration | 自定义 top_k 生效 | `query="..." , top_k=5` | `200`；`contexts` 长度 `<=5` | 已执行-通过 | 返回 `200`，`contexts` 数量不超过 `5` |
 | `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
-| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok`；`indexed_docs/chunks` 有效 | 已执行-通过 | 返回 `200`，统计字段有效 |
+| `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok`；含 `extracted_docs` / `indexed_docs` / `indexed_chunks` | 已执行-通过 | 返回 `200`，统计字段有效 |
 | `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） | 已执行-通过 | 返回 `200`，召回文本命中 `11009` 与 `30s/30秒` 关键线索 |
 | `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` | 已执行-预期失败 | 实际返回非空 `contexts`，当前实现缺少低相关阈值过滤（已在测试中 xfail 标记） |
 
-## 3.1 监控用例（已实现）
+### 3.2 监控用例（已实现）
 
 > 说明：监控接口代码已落地（`monitoring_store.py`），以下用例已写入 `tests/test_rag_api.py` 并通过执行。  
 > 测试环境：使用 InMemory `MonitoringStore` mock，支持时间窗口过滤；不依赖真实 MySQL 已有数据。
@@ -55,7 +77,7 @@
 | `rag_metrics_window_001` | integration | 时间窗口过滤 | 注入 10 分钟前日志 + 2 次近期查询；`GET /rag/metrics?window_minutes=5` | 全量 `total_queries=3`；窗口内 `total_queries=2` | 已执行-通过 | 窗口边界 |
 | `rag_metrics_fail_window_001` | integration | 非法窗口参数 | `window_minutes=0` 或负数 | `422` | 已执行-通过 | 边界校验 |
 
-## 3.2 测评用例（已实现）
+### 3.3 测评用例（已实现）
 
 > 说明：测评接口代码已落地（`eval_store.py`、`eval_metrics.py`），以下用例已写入测试代码并通过执行。  
 > 集成/回归用例：`tests/test_rag_api.py`；评测指标单元用例：`tests/test_eval_metrics.py`。  
@@ -77,15 +99,16 @@
 | `rag_eval_metrics_unit_keyword_001` | unit | 仅 expected_keywords 命中 | 固定 `retrieved_texts` 含关键词 | `hit=1`；`recall=0.0`；`mrr>0` | 已执行-通过 | 仅 keyword 模式不计算 recall |
 | `rag_eval_metrics_unit_chunk_001` | unit | 仅 relevant_chunk_ids 命中 | 固定 `retrieved_chunk_ids` 含标注 ID | `hit=1`；`recall` 按命中比例；`mrr` 按首个命中排名 | 已执行-通过 | chunk 级精确标注 |
 | `rag_eval_metrics_unit_dual_or_001` | unit | 双标注 OR 判定 | chunk 未命中但 keyword 命中 | `hit=1`；`mrr>0` | 已执行-通过 | 对应 `07` §3.3 OR 规则 |
+| `rag_eval_metrics_unit_keyword_all_001` | unit | keyword_match_mode=all | 多词仅部分命中 | `hit=0` | 已执行-通过 | 多词共现约束 |
 
-## 3.3 业务测评集验收（离线，非 pytest）
+### 3.4 业务测评集验收（离线，非 pytest）
 
-> 说明：本节与 §3.2 互补——§3.2 验证测评**系统**正确性（TDD）；本节定义业务**检索质量**验收（SDD 第一层）。  
+> 说明：本节与 §3.3 互补——§3.3 验证测评**系统**正确性（TDD）；本节定义业务**检索质量**验收（SDD 第一层）。  
 > 指标规则见 `07` §3；baseline 与门禁见 `06` §5；种子数据见 `spec/eval/eval_dataset.json`。
 
 | 验收项 | 执行方式 | 期望 | 备注 |
 |---|---|---|---|
-| 种子集导入 | 三份 PDF 入库 + 建索引；`POST /rag/eval/dataset` 导入 JSON | `upserted_count=18` | 同 `case_id` 可覆盖更新 |
+| 种子集导入 | 三份 PDF：`/rag/extract` → `/rag/chunks` → `/rag/index/build`；再 `POST /rag/eval/dataset` 导入 JSON | `upserted_count=18` | 同 `case_id` 可覆盖更新 |
 | 全量离线测评 | `POST /rag/eval/run`，`note` 标注轮次 | 返回 `avg_hit/avg_mrr/avg_latency_ms` | 不传 `top_k` 时各样本按自身或默认 `3` 执行 |
 | P0 核心样本 | `POST /rag/eval/run` 传 `case_ids`（见 `06` §5） | 逐条 `hit=1` | 发布前必查 |
 | 全量质量门槛 | 对比 `GET /rag/eval/runs` 与 baseline（`run_id=3`） | `avg_hit`、`avg_mrr` 不低于 baseline | 流程层验收，接口不自动拦截 |
@@ -94,14 +117,26 @@
 - 本验收**不纳入** `pytest` 默认门禁（依赖真实 embedding 与全量语料，执行成本高）
 - 检索链路变更（切分、embedding、top_k 策略）后必须重跑并更新 `06` baseline
 
+### 3.5 抽取实现层验收（手工 / 待自动化）
+
+> 对应 `08_document_extraction.md`。默认 pytest **不覆盖**本层。
+
+| 验收项 | 执行方式 | 期望 | 备注 |
+|---|---|---|---|
+| 真实 Unstructured 抽取 | conda `rag-demo` 启动服务；`POST /rag/extract` 传本地 PDF | `200`；`extracted_doc_count>0`；`extract_version=unstructured-v1` | 依赖 `unstructured==0.18.32` + `unstructured-inference` 1.5–1.6 |
+| 表格 HTML | 查 `rag_documents.blocks` / 响应 `reports.table_count` | 表格块含 HTML（`text_as_html` 链路） | 首次可能下载 Table Transformer（HF） |
+| 阶段解耦 | extract 后不调 chunks 直接 query | 不可检索；切块后再 build 才可查 | 与契约用例一致 |
+
 ## 4. 测试沉淀规则
 
 - 每新增一个功能点，至少新增 1 条成功用例 + 1 条失败用例
 - 每修复一个缺陷，必须新增对应回归用例
 - 回归用例按 `case_id` 长期保留，不允许随意删除
 - 任何发布前，回归集必须全量通过
+- **Spec 承诺的核心能力**（如 Unstructured 抽取）若仅有 mock 契约测试，必须在本页标明边界，并保留实现层验收项
 
 ## 5. 变更同步要求
 
 - 接口变更后，必须同步更新本页覆盖目标与用例清单
 - 流程变更后，必须新增阶段间联动测试用例
+- 抽取引擎变更后，必须同步更新 §1.1 边界、§3.0 契约用例与 §3.5 实现层验收

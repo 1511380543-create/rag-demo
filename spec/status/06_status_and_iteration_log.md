@@ -5,15 +5,16 @@
 
 ## 1. 当前状态
 
-- 核心接口已实现：`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health` 及监控/测评接口
-- **当前实现**：`/rag/chunks` 仍为一站式「读 PDF + 切块」（旧流程）
-- **spec 目标**（v0.5，待实现）：抽取/切块分离，见 `08_document_extraction.md`
+- 核心接口已实现：`/rag/extract`、`/rag/chunks`（`doc_ids`）、`/rag/index/build`、`/rag/query`、`/rag/health` 及监控/测评接口
+- **当前实现**：抽取/切块已分离——`partition_pdf` 写入 `rag_documents`，切块只读 `full_text` 写入 `rag_chunks`
+- 抽取引擎：原生 `unstructured.partition_pdf`（`extract_version=unstructured-v1`），见 `08_document_extraction.md`
+- 自动化测试：契约层 37 条（含抽取/切块），见 `05`；真实 Unstructured 实现层仍以手工 curl 验收为主
 
-## 2. 目标状态（spec 目标 v0.5）
+## 2. 目标状态（spec 目标 v0.5，代码已落地）
 
 - 目标接口：`/rag/extract`、`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
 - 目标流程：
-  - 阶段一：`SimpleDirectoryReader` + `UnstructuredReader` 抽取 → TextCleaner 清洗 → 续表合并 → `rag_documents`
+  - 阶段一：原生 `unstructured.partition_pdf` 抽取 → TextCleaner 清洗 → 续表合并 → `rag_documents`
   - 阶段二：读 `full_text` → 现有 `SentenceSplitter` 切块 → `rag_chunks`
   - 阶段三：从 `rag_chunks` 构建向量索引
 - 目标存储：
@@ -23,7 +24,7 @@
 
 ## 3. 已知差距
 
-- **抽取链路未实现**（spec 已定义，代码仍为 pypdf 一站式入库）
+- 抽取**实现层**自动化测试未补齐（pytest 默认 mock `PdfExtractPipeline`，不跑真实 Unstructured）
 - 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
 - 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
 - 监控与测评能力已实现：监控埋点、指标聚合、评测集管理与评测执行
@@ -41,13 +42,14 @@
   - 能力：评测集 upsert、离线批量检索测评、历史轮次查看
   - 种子集：`spec/eval/eval_dataset.json`（18 条）
 - 测试状态：
-  - 监控：4 条自动化用例已实现并通过（见 `05` §3.1）
-  - 测评：13 条自动化用例已实现并通过（见 `05` §3.2）
+  - 抽取/切块契约：7 条自动化用例已实现并通过（见 `05` §3.0）
+  - 监控：4 条自动化用例已实现并通过（见 `05` §3.2）
+  - 测评：15 条自动化用例已实现并通过（见 `05` §3.3，含 `keyword_match_mode=all`）
 
 ## 5. 测评 baseline 与门禁
 
 - **语料**：`docs/` 下三份 PDF；种子集 `spec/eval/eval_dataset.json`（18 条）
-- **导入**：PDF 入库 + 建索引后，`POST /rag/eval/dataset` 导入 JSON
+- **导入**：`/rag/extract` → `/rag/chunks` → `/rag/index/build` 后，`POST /rag/eval/dataset` 导入 JSON
 - **baseline**（`run_id=3`）：`avg_hit=0.333`，`avg_mrr=0.333`，`avg_latency_ms=186.5`
 - **主指标**：`avg_hit`；辅指标：`avg_mrr`；性能观测：`avg_latency_ms`（环比，不单独阻断）
 - **迭代门禁**：`avg_hit`、`avg_mrr` 不低于 baseline
@@ -56,11 +58,18 @@
 
 ## 6. 迭代记录
 
+- 2026-07-19（测试 spec 同步）：
+  - 更新 `05_test_plan_and_cases.md`：补充抽取契约用例、切块 `doc_ids`、契约/实现层边界；执行结果更新为 37 条（36 通过 / 1 xfail）
+  - 同步本页当前状态：抽取/切块代码已落地，差距改为「实现层自动化未补」
+- 2026-07-19（抽取引擎调整）：
+  - 抽取加载改为原生 `unstructured.partition_pdf`，移除 LlamaIndex `UnstructuredReader` 依赖（`llama-index-readers-file`）
+  - `extract_version` 更新为 `unstructured-v1`；依赖固定 `unstructured==0.18.32` + `unstructured-inference` 1.5–1.6
+  - 同步更新 `08`/`03`/`02`/`requirements.txt` 与操作手册；代码已落地
 - 2026-07-17（文档抽取 spec v0.5）：
-  - 新增 `08_document_extraction.md`：LlamaIndex + Unstructured 抽取、TextCleaner 清洗、表格 HTML、续表合并
+  - 新增 `08_document_extraction.md`：Unstructured 抽取、TextCleaner 清洗、表格 HTML、续表合并
   - 流程拆为三阶段：抽取（`rag_documents`）→ 切块（`full_text`）→ 索引（`rag_chunks`）
   - 同步更新 `01`/`02`/`03`/`04` API 与数据模型；切块逻辑 spec 明确保持不变
-  - 代码尚未实现，当前仍为旧版一站式 `/rag/chunks`
+  - （历史记录）当时代码尚未实现；现已落地，见上条
 - 2026-07-16（标注收紧）：
   - 种子集改用语料内唯一锚点短语，减少 OR 关键词误命中
   - 新增 `keyword_match_mode`（`any`/`all`），支持多词共现约束

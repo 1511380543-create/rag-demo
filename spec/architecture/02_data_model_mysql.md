@@ -37,7 +37,7 @@ export MYSQL_DATABASE="rag_demo"
 - `id`: bigint 主键，自增
 - `doc_id`: varchar(128)，业务文档 ID
 - `file_path`: varchar(512)，抽取时的本地 PDF 路径
-- `extract_version`: varchar(64)，抽取器版本（如 `llamaindex-unstructured-v1`）
+- `extract_version`: varchar(64)，抽取器版本（如 `unstructured-v1`）
 - `page_count`: int，无符号，有效页数
 - `char_count`: int，无符号，`full_text` 字符数
 - `full_text`: longtext，供切块层读取的唯一文本输入

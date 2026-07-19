@@ -23,7 +23,7 @@
 ### 2.2 本阶段范围
 
 - 文档类型：`pdf`
-- 抽取引擎：LlamaIndex `SimpleDirectoryReader` + `UnstructuredReader`
+- 抽取引擎：原生 `unstructured.partition_pdf`（`hi_res`，表格结构推断）；依赖 `unstructured` + `unstructured-inference`（非 `[pdf]` 额外组）；LlamaIndex 仅用于切块与向量索引
 - 数据存储：MySQL 存抽取结果（`rag_documents`）与 chunk（`rag_chunks`），不存原始 PDF
 - 索引构建数据源：固定为 MySQL `rag_chunks`
 
