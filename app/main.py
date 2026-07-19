@@ -10,6 +10,7 @@ from app.models import (
     BuildIndexRequest,
     BuildIndexResponse,
     ChunkIngestResponse,
+    ChunkRequest,
     ErrorResponse,
     EvalDatasetListResponse,
     EvalDatasetUpsertRequest,
@@ -17,13 +18,20 @@ from app.models import (
     EvalRunListResponse,
     EvalRunRequest,
     EvalRunResponse,
+    ExtractRequest,
+    ExtractResponse,
     HealthResponse,
-    IndexRequest,
     MetricsResponse,
     QueryRequest,
     QueryResponse,
 )
-from app.rag_service import EvalDatasetEmptyError, IndexNotReadyError, NoChunksAvailableError, RagService
+from app.rag_service import (
+    DocumentNotExtractedError,
+    EvalDatasetEmptyError,
+    IndexNotReadyError,
+    NoChunksAvailableError,
+    RagService,
+)
 
 
 def _load_settings():
@@ -78,11 +86,18 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
     )
 
 
-@app.post("/rag/chunks", response_model=ChunkIngestResponse)
-async def ingest_chunks(request: IndexRequest) -> ChunkIngestResponse:
+@app.post("/rag/extract", response_model=ExtractResponse)
+async def extract_documents(request: ExtractRequest) -> ExtractResponse:
     try:
-        stored_doc_count, stored_chunk_count = rag_service.ingest_documents(request.documents)
-        return ChunkIngestResponse(stored_doc_count=stored_doc_count, stored_chunk_count=stored_chunk_count)
+        extracted_doc_count, total_page_count, total_char_count, reports = rag_service.extract_documents(
+            request.documents
+        )
+        return ExtractResponse(
+            extracted_doc_count=extracted_doc_count,
+            total_page_count=total_page_count,
+            total_char_count=total_char_count,
+            reports=reports,
+        )
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(
             status_code=422,
@@ -96,8 +111,33 @@ async def ingest_chunks(request: IndexRequest) -> ChunkIngestResponse:
         raise HTTPException(
             status_code=500,
             detail={
+                "error_code": "DOCUMENT_EXTRACT_ERROR",
+                "message": "文档抽取或 MySQL 写入异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.post("/rag/chunks", response_model=ChunkIngestResponse)
+async def ingest_chunks(request: ChunkRequest) -> ChunkIngestResponse:
+    try:
+        stored_doc_count, stored_chunk_count = rag_service.chunk_documents(request.doc_ids)
+        return ChunkIngestResponse(stored_doc_count=stored_doc_count, stored_chunk_count=stored_chunk_count)
+    except DocumentNotExtractedError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "DOCUMENT_NOT_EXTRACTED",
+                "message": str(exc),
+                "detail": None,
+            },
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
                 "error_code": "CHUNK_INGEST_ERROR",
-                "message": "文档切分或 MySQL 写入异常",
+                "message": "文档切块或 MySQL 写入异常",
                 "detail": {"reason": str(exc)},
             },
         ) from exc

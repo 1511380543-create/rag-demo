@@ -71,7 +71,73 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
     import app.qwen_embedding as qwen_embedding
     import app.rag_service as rag_service_module
+    from app.extract.unstructured_loader import EXTRACT_VERSION
+    from app.extract.models import ContentBlock, ExtractReport, ExtractedDocument
     from app.mysql_chunk_store import ChunkRow
+    from app.mysql_document_store import DocumentRow
+    from pypdf import PdfReader
+
+    class TestPdfExtractPipeline:
+        """测试用抽取管道：用 pypdf 模拟抽取结果，避免依赖 Unstructured。"""
+
+        def extract(self, doc_id: str, file_path: str, metadata=None) -> ExtractedDocument:
+            normalized = file_path.strip()
+            if not normalized.lower().endswith(".pdf"):
+                raise ValueError("仅支持 PDF 文档抽取，请传入 .pdf 文件路径")
+            pdf_path = Path(normalized)
+            if not pdf_path.exists():
+                raise FileNotFoundError(f"PDF 文件不存在: {normalized}")
+
+            page_texts: list[str] = []
+            reader = PdfReader(str(pdf_path))
+            for page in reader.pages:
+                page_text = (page.extract_text() or "").strip()
+                if page_text:
+                    page_texts.append(page_text)
+            full_text = "\n\n".join(page_texts).strip()
+            if not full_text:
+                raise ValueError(f"文档内容为空，无法抽取: {normalized}")
+
+            doc_metadata = dict(metadata or {})
+            doc_metadata["doc_id"] = doc_id
+            doc_metadata["file_path"] = normalized
+            return ExtractedDocument(
+                doc_id=doc_id,
+                file_path=normalized,
+                extract_version=EXTRACT_VERSION,
+                page_count=max(len(page_texts), 1),
+                blocks=[ContentBlock(block_type="paragraph", order=0, text=full_text)],
+                full_text=full_text,
+                metadata=doc_metadata,
+                content_hash=hashlib.sha256(full_text.encode("utf-8")).hexdigest(),
+                extract_report=ExtractReport(element_count=1, paragraph_block_count=1),
+            )
+
+    class InMemoryDocumentStore:
+        """测试使用的内存抽取文档存储。"""
+
+        def __init__(self, settings=None, **_kwargs) -> None:
+            self._rows: dict[str, DocumentRow] = {}
+
+        def replace_document(self, document: ExtractedDocument) -> None:
+            self._rows[document.doc_id] = DocumentRow(
+                doc_id=document.doc_id,
+                file_path=document.file_path,
+                extract_version=document.extract_version,
+                page_count=document.page_count,
+                char_count=document.char_count,
+                full_text=document.full_text,
+                blocks=document.blocks,
+                extract_report=document.extract_report,
+                metadata=document.metadata,
+                content_hash=document.content_hash,
+            )
+
+        def fetch_documents(self, doc_ids: list[str]):
+            return [self._rows[doc_id] for doc_id in doc_ids if doc_id in self._rows]
+
+        def count_documents(self) -> int:
+            return len(self._rows)
 
     class InMemoryChunkStore:
         """测试使用的内存 chunk 存储，避免依赖真实 MySQL。"""
@@ -236,6 +302,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(qwen_embedding.QwenEmbedding, "_get_text_embeddings", _fake_get_text_embeddings)
     monkeypatch.setattr(qwen_embedding.QwenEmbedding, "_get_query_embedding", _fake_get_query_embedding)
     monkeypatch.setattr(qwen_embedding.QwenEmbedding, "_aget_query_embedding", _fake_aget_query_embedding)
+    monkeypatch.setattr(rag_service_module, "PdfExtractPipeline", TestPdfExtractPipeline)
+    monkeypatch.setattr(rag_service_module, "MySQLDocumentStore", InMemoryDocumentStore)
     monkeypatch.setattr(rag_service_module, "MySQLChunkStore", InMemoryChunkStore)
     monkeypatch.setattr(rag_service_module, "MonitoringStore", InMemoryMonitoringStore)
     monkeypatch.setattr(rag_service_module, "EvalStore", InMemoryEvalStore)
@@ -247,9 +315,20 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         yield test_client
 
 
-def _ingest_documents(client: TestClient, documents: list[dict]) -> None:
-    response = client.post("/rag/chunks", json={"documents": documents})
+def _extract_documents(client: TestClient, documents: list[dict]) -> None:
+    response = client.post("/rag/extract", json={"documents": documents})
     assert response.status_code == 200
+
+
+def _chunk_documents(client: TestClient, doc_ids: list[str]) -> None:
+    response = client.post("/rag/chunks", json={"doc_ids": doc_ids})
+    assert response.status_code == 200
+
+
+def _ingest_documents(client: TestClient, documents: list[dict]) -> None:
+    doc_ids = [item["doc_id"] for item in documents]
+    _extract_documents(client, documents)
+    _chunk_documents(client, doc_ids)
 
 
 def _ingest_two_pdfs(client: TestClient) -> None:
@@ -340,33 +419,61 @@ def test_rag_query_fail_no_index_001(client: TestClient) -> None:
     assert response.json()["error_code"] == "INDEX_NOT_READY"
 
 
-def test_rag_chunks_fail_empty_001(client: TestClient) -> None:
+def test_rag_extract_fail_empty_001(client: TestClient) -> None:
     """备注：documents 为空数组应返回 422。"""
-    response = client.post("/rag/chunks", json={"documents": []})
+    response = client.post("/rag/extract", json={"documents": []})
     assert response.status_code == 422
 
 
-def test_rag_chunks_fail_non_pdf_001(client: TestClient) -> None:
+def test_rag_extract_fail_non_pdf_001(client: TestClient) -> None:
     """备注：非 PDF 路径应被拒绝。"""
-    response = client.post("/rag/chunks", json={"documents": [{"doc_id": "x1", "file_path": "docs/a.txt"}]})
+    response = client.post("/rag/extract", json={"documents": [{"doc_id": "x1", "file_path": "docs/a.txt"}]})
     assert response.status_code == 422
 
 
-def test_rag_chunks_fail_file_not_found_001(client: TestClient) -> None:
+def test_rag_extract_fail_file_not_found_001(client: TestClient) -> None:
     """备注：本地文件不存在应返回 422。"""
-    response = client.post("/rag/chunks", json={"documents": [{"doc_id": "x2", "file_path": "docs/not_exist.pdf"}]})
+    response = client.post("/rag/extract", json={"documents": [{"doc_id": "x2", "file_path": "docs/not_exist.pdf"}]})
     assert response.status_code == 422
 
 
-def test_rag_chunks_ok_001(client: TestClient) -> None:
-    """备注：2 个 PDF 正常切分入库。"""
+def test_rag_extract_ok_001(client: TestClient) -> None:
+    """备注：2 个 PDF 正常抽取入库。"""
     payload = {
         "documents": [
             {"doc_id": "pdf-obd-809", "file_path": "docs/OBD设备JT_T 809协议虚拟技术手册.pdf"},
             {"doc_id": "pdf-emission-std", "file_path": "docs/国三排放标准柴油机动车报废管理实施标准（虚拟政策文档）.pdf"},
         ]
     }
-    response = client.post("/rag/chunks", json=payload)
+    response = client.post("/rag/extract", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["extracted_doc_count"] == 2
+    assert body["total_page_count"] > 0
+    assert body["total_char_count"] > 0
+
+
+def test_rag_chunks_fail_empty_001(client: TestClient) -> None:
+    """备注：doc_ids 为空数组应返回 422。"""
+    response = client.post("/rag/chunks", json={"doc_ids": []})
+    assert response.status_code == 422
+
+
+def test_rag_chunks_fail_not_extracted_001(client: TestClient) -> None:
+    """备注：未抽取文档直接切块应返回 400。"""
+    response = client.post("/rag/chunks", json={"doc_ids": ["missing-doc"]})
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "DOCUMENT_NOT_EXTRACTED"
+
+
+def test_rag_chunks_ok_001(client: TestClient) -> None:
+    """备注：先抽取后切块，2 个 PDF 正常入库。"""
+    documents = [
+        {"doc_id": "pdf-obd-809", "file_path": "docs/OBD设备JT_T 809协议虚拟技术手册.pdf"},
+        {"doc_id": "pdf-emission-std", "file_path": "docs/国三排放标准柴油机动车报废管理实施标准（虚拟政策文档）.pdf"},
+    ]
+    _extract_documents(client, documents)
+    response = client.post("/rag/chunks", json={"doc_ids": [item["doc_id"] for item in documents]})
     assert response.status_code == 200
     body = response.json()
     assert body["stored_doc_count"] == 2
@@ -416,6 +523,7 @@ def test_rag_health_ok_001(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
+    assert body["extracted_docs"] == 1
     assert body["indexed_docs"] == 1
     assert body["indexed_chunks"] > 0
 

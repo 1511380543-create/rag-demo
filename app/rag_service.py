@@ -11,7 +11,7 @@ from llama_index.core.schema import QueryBundle, TextNode
 from app.config import Settings
 from app.eval_metrics import compute_eval_metrics
 from app.eval_store import EvalCaseRow, EvalRunItemRow, EvalStore
-from app.local_pdf_reader import read_pdf_text
+from app.extract.pipeline import PdfExtractPipeline
 from app.models import (
     BuildIndexRequest,
     EvalCase,
@@ -21,6 +21,7 @@ from app.models import (
     EvalRunRequest,
     EvalRunResponse,
     EvalRunSummary,
+    ExtractReportItem,
     HealthResponse,
     IndexDocument,
     MetricsResponse,
@@ -30,6 +31,7 @@ from app.models import (
 )
 from app.monitoring_store import MonitoringStore, QueryLogItem
 from app.mysql_chunk_store import ChunkWriteItem, MySQLChunkStore
+from app.mysql_document_store import MySQLDocumentStore
 from app.qwen_embedding import QwenEmbedding
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,10 @@ class EvalDatasetEmptyError(RuntimeError):
     """评测集为空，无法执行评测。"""
 
 
+class DocumentNotExtractedError(RuntimeError):
+    """文档尚未抽取，无法切块。"""
+
+
 @dataclass
 class _RetrievalResult:
     """内部检索结果，供查询与评测复用。"""
@@ -58,7 +64,7 @@ class _RetrievalResult:
 
 
 class RagService:
-    """RAG 检索服务：负责入库、检索与健康信息。"""
+    """RAG 检索服务：负责抽取、切块、检索与健康信息。"""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -67,10 +73,12 @@ class RagService:
         self._indexed_doc_count = 0
         self._indexed_chunk_count = 0
 
+        self._extract_pipeline = PdfExtractPipeline()
         self._splitter = SentenceSplitter(
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
         )
+        self._document_store = MySQLDocumentStore(settings=settings)
         self._chunk_store = MySQLChunkStore(settings=settings)
         self._monitoring_store = MonitoringStore(settings=settings)
         self._eval_store = EvalStore(settings=settings)
@@ -81,20 +89,60 @@ class RagService:
         )
         LlamaSettings.embed_model = self._embed_model
 
-    def ingest_documents(self, documents: list[IndexDocument]) -> tuple[int, int]:
-        """从本地读取 PDF，切分后写入 MySQL。"""
+    def extract_documents(
+        self,
+        documents: list[IndexDocument],
+    ) -> tuple[int, int, int, list[ExtractReportItem]]:
+        """从本地 PDF 抽取文本并持久化到 MySQL。"""
+        extracted_doc_count = 0
+        total_page_count = 0
+        total_char_count = 0
+        reports: list[ExtractReportItem] = []
+        with self._lock:
+            for item in documents:
+                extracted = self._extract_pipeline.extract(
+                    doc_id=item.doc_id,
+                    file_path=item.file_path,
+                    metadata=item.metadata,
+                )
+                self._document_store.replace_document(extracted)
+                extracted_doc_count += 1
+                total_page_count += extracted.page_count
+                total_char_count += extracted.char_count
+                report = extracted.extract_report
+                reports.append(
+                    ExtractReportItem(
+                        doc_id=item.doc_id,
+                        dropped_elements=report.dropped_elements,
+                        table_count=report.table_count,
+                        merged_continuations=report.merged_continuations,
+                        paragraph_block_count=report.paragraph_block_count,
+                    )
+                )
+        return extracted_doc_count, total_page_count, total_char_count, reports
+
+    def chunk_documents(self, doc_ids: list[str]) -> tuple[int, int]:
+        """从 MySQL 读取已抽取文档并切块写入 rag_chunks。"""
         stored_doc_count = 0
         stored_chunk_count = 0
         with self._lock:
-            for item in documents:
-                content = self._read_local_document(item.file_path)
-                chunks = self._split_to_chunks(
-                    doc_id=item.doc_id,
-                    file_path=item.file_path,
-                    content=content,
-                    metadata=item.metadata,
+            rows = self._document_store.fetch_documents(doc_ids)
+            row_map = {row.doc_id: row for row in rows}
+            missing_doc_ids = [doc_id for doc_id in doc_ids if doc_id not in row_map]
+            if missing_doc_ids:
+                raise DocumentNotExtractedError(
+                    f"以下文档尚未抽取，请先调用 /rag/extract: {', '.join(missing_doc_ids)}"
                 )
-                stored_count = self._chunk_store.replace_document_chunks(item.doc_id, chunks)
+
+            for doc_id in doc_ids:
+                row = row_map[doc_id]
+                chunks = self._split_to_chunks(
+                    doc_id=doc_id,
+                    file_path=row.file_path,
+                    content=row.full_text,
+                    metadata=row.metadata,
+                )
+                stored_count = self._chunk_store.replace_document_chunks(doc_id, chunks)
                 stored_doc_count += 1
                 stored_chunk_count += stored_count
         return stored_doc_count, stored_chunk_count
@@ -326,11 +374,13 @@ class RagService:
 
     def health(self) -> HealthResponse:
         with self._lock:
+            extracted_docs = self._document_store.count_documents()
             indexed_docs = self._chunk_store.count_distinct_docs()
             indexed_chunks = self._chunk_store.count_chunks()
             return HealthResponse(
                 status="ok",
                 index_ready=self._index is not None,
+                extracted_docs=extracted_docs,
                 indexed_docs=indexed_docs,
                 indexed_chunks=indexed_chunks,
             )
@@ -449,18 +499,6 @@ class RagService:
             if metadata.get(key) != value:
                 return False
         return True
-
-    @staticmethod
-    def _read_local_document(file_path: str) -> str:
-        # 当前阶段仅支持本地 PDF 入库，避免混入未定义格式。
-        normalized = file_path.strip()
-        if not normalized.lower().endswith(".pdf"):
-            raise ValueError("仅支持 PDF 文档入库，请传入 .pdf 文件路径")
-
-        content = read_pdf_text(normalized)
-        if not content:
-            raise ValueError(f"文档内容为空，无法入库: {normalized}")
-        return content
 
     def _split_to_chunks(
         self,

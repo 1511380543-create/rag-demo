@@ -1,0 +1,221 @@
+import json
+from dataclasses import dataclass
+from typing import Any
+
+import pymysql
+from pymysql.connections import Connection
+from pymysql.cursors import DictCursor
+
+from app.config import Settings
+from app.extract.models import ContentBlock, ExtractReport, ExtractedDocument
+
+
+@dataclass
+class DocumentRow:
+    doc_id: str
+    file_path: str
+    extract_version: str
+    page_count: int
+    char_count: int
+    full_text: str
+    blocks: list[ContentBlock]
+    extract_report: ExtractReport | None
+    metadata: dict[str, Any] | None
+    content_hash: str
+
+
+def document_row_to_extracted(row: DocumentRow) -> ExtractedDocument:
+    """将数据库行转换为抽取文档对象。"""
+    return ExtractedDocument(
+        doc_id=row.doc_id,
+        file_path=row.file_path,
+        extract_version=row.extract_version,
+        page_count=row.page_count,
+        blocks=row.blocks,
+        full_text=row.full_text,
+        metadata=row.metadata,
+        content_hash=row.content_hash,
+        extract_report=row.extract_report or ExtractReport(),
+    )
+
+
+class MySQLDocumentStore:
+    """负责 rag_documents 表的读写。"""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    def replace_document(self, document: ExtractedDocument) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM rag_documents WHERE doc_id = %s", (document.doc_id,))
+                insert_sql = """
+                    INSERT INTO rag_documents (
+                        doc_id,
+                        file_path,
+                        extract_version,
+                        page_count,
+                        char_count,
+                        full_text,
+                        blocks,
+                        extract_report,
+                        metadata,
+                        content_hash
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(
+                    insert_sql,
+                    (
+                        document.doc_id,
+                        document.file_path,
+                        document.extract_version,
+                        document.page_count,
+                        document.char_count,
+                        document.full_text,
+                        self._blocks_to_json(document.blocks),
+                        self._to_json(document.extract_report.to_dict()),
+                        self._to_json(document.metadata),
+                        document.content_hash,
+                    ),
+                )
+            conn.commit()
+
+    def fetch_document(self, doc_id: str) -> DocumentRow | None:
+        rows = self.fetch_documents([doc_id])
+        return rows[0] if rows else None
+
+    def fetch_documents(self, doc_ids: list[str]) -> list[DocumentRow]:
+        if not doc_ids:
+            return []
+
+        placeholders = ", ".join(["%s"] * len(doc_ids))
+        query = f"""
+            SELECT
+                doc_id,
+                file_path,
+                extract_version,
+                page_count,
+                char_count,
+                full_text,
+                blocks,
+                extract_report,
+                metadata,
+                content_hash
+            FROM rag_documents
+            WHERE doc_id IN ({placeholders})
+            ORDER BY doc_id ASC
+        """
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, tuple(doc_ids))
+                rows = cursor.fetchall()
+        return [self._to_document_row(row) for row in rows]
+
+    def count_documents(self) -> int:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) AS cnt FROM rag_documents")
+                row = cursor.fetchone()
+        return int((row or {}).get("cnt", 0))
+
+    def _connect(self) -> Connection:
+        return pymysql.connect(
+            host=self._settings.mysql_host,
+            port=self._settings.mysql_port,
+            user=self._settings.mysql_user,
+            password=self._settings.mysql_password,
+            database=self._settings.mysql_database,
+            charset="utf8mb4",
+            cursorclass=DictCursor,
+            autocommit=False,
+        )
+
+    @staticmethod
+    def _blocks_to_json(blocks: list[ContentBlock]) -> str:
+        payload = []
+        for block in blocks:
+            item: dict[str, Any] = {
+                "type": block.block_type,
+                "order": block.order,
+            }
+            if block.text is not None:
+                item["text"] = block.text
+            if block.html is not None:
+                item["html"] = block.html
+            if block.logical_table_id is not None:
+                item["logical_table_id"] = block.logical_table_id
+            payload.append(item)
+        return json.dumps(payload, ensure_ascii=False)
+
+    @staticmethod
+    def _from_blocks_json(value: Any) -> list[ContentBlock]:
+        if value is None:
+            return []
+        parsed = json.loads(value) if isinstance(value, str) else value
+        if not isinstance(parsed, list):
+            return []
+
+        blocks: list[ContentBlock] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            block_type = str(item.get("type", "")).strip()
+            if block_type not in {"paragraph", "table"}:
+                continue
+            blocks.append(
+                ContentBlock(
+                    block_type=block_type,  # type: ignore[arg-type]
+                    order=int(item.get("order", 0)),
+                    text=item.get("text"),
+                    html=item.get("html"),
+                    logical_table_id=item.get("logical_table_id"),
+                )
+            )
+        return sorted(blocks, key=lambda block: block.order)
+
+    @staticmethod
+    def _from_report_json(value: Any) -> ExtractReport | None:
+        if value is None:
+            return None
+        parsed = json.loads(value) if isinstance(value, str) else value
+        if not isinstance(parsed, dict):
+            return None
+        return ExtractReport(
+            element_count=int(parsed.get("element_count", 0)),
+            dropped_elements=int(parsed.get("dropped_elements", 0)),
+            table_count=int(parsed.get("table_count", 0)),
+            merged_continuations=int(parsed.get("merged_continuations", 0)),
+            paragraph_block_count=int(parsed.get("paragraph_block_count", 0)),
+        )
+
+    @staticmethod
+    def _to_json(value: dict[str, Any] | None) -> str | None:
+        if value is None:
+            return None
+        return json.dumps(value, ensure_ascii=False)
+
+    @staticmethod
+    def _from_json(value: Any) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else None
+        return None
+
+    def _to_document_row(self, row: dict[str, Any]) -> DocumentRow:
+        return DocumentRow(
+            doc_id=str(row["doc_id"]),
+            file_path=str(row["file_path"]),
+            extract_version=str(row["extract_version"]),
+            page_count=int(row["page_count"]),
+            char_count=int(row["char_count"]),
+            full_text=str(row["full_text"]),
+            blocks=self._from_blocks_json(row["blocks"]),
+            extract_report=self._from_report_json(row["extract_report"]),
+            metadata=self._from_json(row["metadata"]),
+            content_hash=str(row["content_hash"]),
+        )

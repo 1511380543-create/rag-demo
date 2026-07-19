@@ -18,8 +18,38 @@ class IndexDocument(BaseModel):
         return cleaned
 
 
-class IndexRequest(BaseModel):
+class ExtractRequest(BaseModel):
     documents: list[IndexDocument] = Field(min_length=1)
+
+
+class ExtractReportItem(BaseModel):
+    doc_id: str
+    dropped_elements: int
+    table_count: int
+    merged_continuations: int
+    paragraph_block_count: int
+
+
+class ExtractResponse(BaseModel):
+    extracted_doc_count: int
+    total_page_count: int
+    total_char_count: int
+    reports: list[ExtractReportItem] | None = None
+
+
+class ChunkRequest(BaseModel):
+    doc_ids: list[str] = Field(min_length=1)
+
+    @field_validator("doc_ids")
+    @classmethod
+    def validate_doc_ids(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in value:
+            cleaned = item.strip()
+            if not cleaned:
+                raise ValueError("doc_ids 中不允许出现空字符串")
+            normalized.append(cleaned)
+        return normalized
 
 
 class ChunkIngestResponse(BaseModel):
@@ -84,6 +114,7 @@ class QueryResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = "ok"
     index_ready: bool
+    extracted_docs: int
     indexed_docs: int
     indexed_chunks: int
 

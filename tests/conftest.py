@@ -13,10 +13,13 @@ class AuditMeta:
 
 CASE_AUDIT_META: dict[str, AuditMeta] = {
     "rag_query_fail_no_index_001": AuditMeta("400 + INDEX_NOT_READY", "未建索引直接查询应拒绝"),
-    "rag_chunks_fail_empty_001": AuditMeta("422", "documents 为空数组"),
-    "rag_chunks_fail_non_pdf_001": AuditMeta("422", "仅支持 PDF 路径"),
-    "rag_chunks_fail_file_not_found_001": AuditMeta("422", "本地文件不存在"),
-    "rag_chunks_ok_001": AuditMeta("200 + stored_doc_count=2 + stored_chunk_count>0", "双文档切分入库成功"),
+    "rag_extract_fail_empty_001": AuditMeta("422", "documents 为空数组"),
+    "rag_extract_fail_non_pdf_001": AuditMeta("422", "仅支持 PDF 路径"),
+    "rag_extract_fail_file_not_found_001": AuditMeta("422", "本地文件不存在"),
+    "rag_extract_ok_001": AuditMeta("200 + extracted_doc_count=2", "双文档抽取成功"),
+    "rag_chunks_fail_empty_001": AuditMeta("422", "doc_ids 为空数组"),
+    "rag_chunks_fail_not_extracted_001": AuditMeta("400 + DOCUMENT_NOT_EXTRACTED", "未抽取直接切块应拒绝"),
+    "rag_chunks_ok_001": AuditMeta("200 + stored_doc_count=2 + stored_chunk_count>0", "先抽取后切块成功"),
     "rag_index_build_fail_no_chunks_001": AuditMeta("400 + NO_CHUNKS_FOR_INDEX", "无 chunk 时构建应拒绝"),
     "rag_index_build_fail_invalid_doc_ids_001": AuditMeta("422", "doc_ids 含空字符串"),
     "rag_index_build_ok_001": AuditMeta("200 + indexed_doc_count=2 + indexed_chunk_count>0", "索引构建成功"),

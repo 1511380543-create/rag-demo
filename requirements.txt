@@ -6,3 +6,5 @@ openai
 pydantic-settings
 pypdf
 pymysql
+unstructured==0.18.32
+unstructured-inference>=1.5.2,<1.7
