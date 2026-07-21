@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 @dataclass(frozen=True)
@@ -20,6 +26,13 @@ CASE_AUDIT_META: dict[str, AuditMeta] = {
     "rag_chunks_fail_empty_001": AuditMeta("422", "doc_ids 为空数组"),
     "rag_chunks_fail_not_extracted_001": AuditMeta("400 + DOCUMENT_NOT_EXTRACTED", "未抽取直接切块应拒绝"),
     "rag_chunks_ok_001": AuditMeta("200 + stored_doc_count=2 + stored_chunk_count>0", "先抽取后切块成功"),
+    "rag_chunk_unit_blocks_path_001": AuditMeta("paragraph+table_rows", "有 blocks：段落先拼再切"),
+    "rag_chunk_unit_merge_short_paragraphs_001": AuditMeta("短段合并为1块", "标题不再单独成块"),
+    "rag_chunk_unit_paragraph_flush_before_table_001": AuditMeta("表前先flush段落", "段落与表格不混块"),
+    "rag_chunk_unit_fallback_001": AuditMeta("full_text_fallback", "无 blocks 回退 full_text"),
+    "rag_chunk_unit_table_header_001": AuditMeta("chunk 含 caption+thead", "表格行组表头附着"),
+    "rag_chunk_unit_table_fallback_001": AuditMeta("table_fallback", "无行表格整表降级"),
+    "rag_chunk_unit_empty_input_001": AuditMeta("EmptyChunkInputError", "输入皆空报错"),
     "rag_index_build_fail_no_chunks_001": AuditMeta("400 + NO_CHUNKS_FOR_INDEX", "无 chunk 时构建应拒绝"),
     "rag_index_build_fail_invalid_doc_ids_001": AuditMeta("422", "doc_ids 含空字符串"),
     "rag_index_build_ok_001": AuditMeta("200 + indexed_doc_count=2 + indexed_chunk_count>0", "索引构建成功"),
@@ -50,6 +63,19 @@ CASE_AUDIT_META: dict[str, AuditMeta] = {
     "rag_eval_metrics_unit_dual_or_001": AuditMeta("hit=1 mrr>0", "双标注 OR 规则"),
     "rag_eval_metrics_unit_keyword_all_001": AuditMeta("部分命中 hit=0", "keyword_match_mode=all"),
 }
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """强制使用 conda 环境 rag-demo，避免误用 .venv。"""
+    prefix = Path(sys.prefix).as_posix()
+    executable = Path(sys.executable).as_posix()
+    in_rag_demo = ("envs/rag-demo" in prefix) or ("envs/rag-demo" in executable)
+    if not in_rag_demo:
+        raise pytest.UsageError(
+            "请在 conda 环境 rag-demo 下执行测试：\n"
+            "  conda activate rag-demo && pytest tests/ -q\n"
+            f"当前解释器: {sys.executable}"
+        )
 
 
 def _case_id_from_nodeid(nodeid: str) -> str | None:

@@ -4,14 +4,22 @@ from threading import RLock
 from time import perf_counter
 from typing import Any
 
-from llama_index.core import Document, Settings as LlamaSettings, VectorStoreIndex
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core import Settings as LlamaSettings, VectorStoreIndex
 from llama_index.core.schema import QueryBundle, TextNode
 
+from app.chunk.models import EmptyChunkInputError
+from app.chunk.pipeline import ChunkPipeline
 from app.config import Settings
 from app.eval_metrics import compute_eval_metrics
 from app.eval_store import EvalCaseRow, EvalRunItemRow, EvalStore
-from app.extract.pipeline import PdfExtractPipeline
+from app.extract.models import ContentBlock
+
+# 允许契约测试在无 mineru 时 monkeypatch 替换该类
+try:
+    from app.extract.pipeline import PdfExtractPipeline
+except ImportError:  # pragma: no cover
+    PdfExtractPipeline = None  # type: ignore[misc, assignment]
+
 from app.models import (
     BuildIndexRequest,
     EvalCase,
@@ -30,6 +38,7 @@ from app.models import (
     RetrievedContext,
 )
 from app.monitoring_store import MonitoringStore, QueryLogItem
+from app.extract.models import ContentBlock
 from app.mysql_chunk_store import ChunkWriteItem, MySQLChunkStore
 from app.mysql_document_store import MySQLDocumentStore
 from app.qwen_embedding import QwenEmbedding
@@ -73,10 +82,11 @@ class RagService:
         self._indexed_doc_count = 0
         self._indexed_chunk_count = 0
 
-        self._extract_pipeline = PdfExtractPipeline()
-        self._splitter = SentenceSplitter(
+        self._extract_pipeline = self._build_extract_pipeline()
+        self._chunk_pipeline = ChunkPipeline(
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
+            min_chunk_chars=settings.min_chunk_chars,
         )
         self._document_store = MySQLDocumentStore(settings=settings)
         self._chunk_store = MySQLChunkStore(settings=settings)
@@ -88,6 +98,13 @@ class RagService:
             api_base=settings.dashscope_base_url,
         )
         LlamaSettings.embed_model = self._embed_model
+
+    @staticmethod
+    def _build_extract_pipeline():
+        """创建抽取引擎；契约测试可通过 monkeypatch 替换 PdfExtractPipeline。"""
+        if PdfExtractPipeline is None:
+            raise RuntimeError("PdfExtractPipeline 不可用，请安装 mineru 相关依赖")
+        return PdfExtractPipeline()
 
     def extract_documents(
         self,
@@ -114,9 +131,15 @@ class RagService:
                     ExtractReportItem(
                         doc_id=item.doc_id,
                         dropped_elements=report.dropped_elements,
+                        dropped_fragments=report.dropped_fragments,
+                        dropped_garbled=report.dropped_garbled,
                         table_count=report.table_count,
+                        table_quality_failed=report.table_quality_failed,
                         merged_continuations=report.merged_continuations,
                         paragraph_block_count=report.paragraph_block_count,
+                        title_count=report.title_count,
+                        paragraph_count=report.paragraph_count,
+                        list_item_count=report.list_item_count,
                     )
                 )
         return extracted_doc_count, total_page_count, total_char_count, reports
@@ -136,12 +159,16 @@ class RagService:
 
             for doc_id in doc_ids:
                 row = row_map[doc_id]
-                chunks = self._split_to_chunks(
-                    doc_id=doc_id,
-                    file_path=row.file_path,
-                    content=row.full_text,
-                    metadata=row.metadata,
-                )
+                try:
+                    chunks = self._split_to_chunks(
+                        doc_id=doc_id,
+                        file_path=row.file_path,
+                        blocks=row.blocks,
+                        full_text=row.full_text,
+                        metadata=row.metadata,
+                    )
+                except EmptyChunkInputError as exc:
+                    raise RuntimeError(f"文档 {doc_id} 切块失败: {exc}") from exc
                 stored_count = self._chunk_store.replace_document_chunks(doc_id, chunks)
                 stored_doc_count += 1
                 stored_chunk_count += stored_count
@@ -504,23 +531,27 @@ class RagService:
         self,
         doc_id: str,
         file_path: str,
-        content: str,
+        blocks: list[ContentBlock],
+        full_text: str,
         metadata: dict[str, Any] | None,
     ) -> list[ChunkWriteItem]:
+        """调用切块管线，将结果转为写库项。"""
         base_metadata = dict(metadata or {})
         base_metadata["doc_id"] = doc_id
         base_metadata["file_path"] = file_path
 
-        doc = Document(text=content, metadata=base_metadata, id_=doc_id)
-        nodes = self._splitter.get_nodes_from_documents([doc])
+        pieces = self._chunk_pipeline.chunk_document(
+            blocks=blocks,
+            full_text=full_text,
+            base_metadata=base_metadata,
+        )
 
         chunks: list[ChunkWriteItem] = []
-        for index, node in enumerate(nodes):
-            chunk_text = node.get_content().strip()
+        for index, piece in enumerate(pieces):
+            chunk_text = piece.chunk_text.strip()
             if not chunk_text:
                 continue
-
-            chunk_metadata = dict(node.metadata or {})
+            chunk_metadata = dict(piece.metadata)
             chunk_metadata["doc_id"] = doc_id
             chunk_metadata["file_path"] = file_path
             chunk_metadata["chunk_index"] = index
@@ -531,4 +562,6 @@ class RagService:
                     metadata=chunk_metadata,
                 )
             )
+        if not chunks:
+            raise EmptyChunkInputError("切块结果为空")
         return chunks

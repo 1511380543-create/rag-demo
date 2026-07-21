@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-v4"
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     chunk_size: int = 500
-    chunk_overlap: int = 50
+    chunk_overlap: int = 20
+    min_chunk_chars: int = 20
     index_name: str = "local_rag_index"
     mysql_host: str = Field(default="127.0.0.1", alias="MYSQL_HOST")
     mysql_port: int = Field(default=3306, alias="MYSQL_PORT")
