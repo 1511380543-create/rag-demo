@@ -5,49 +5,79 @@
 
 ## 1. 测试分层
 
-- 单元测试：切分、参数校验、召回结果格式化逻辑、评测指标计算（`eval_metrics.py`）
+- 单元测试：切分（`tests/test_chunk_pipeline.py`：结构路径 / 回退 / 表格表头）、参数校验、召回结果格式化逻辑、评测指标计算（`eval_metrics.py`）
 - 契约/集成测试：`extract → chunks → index/build → query` 链路（`tests/test_rag_api.py`）
 - 回归测试：固定问答样例集合，迭代后必须全通过
 
-### 1.1 抽取相关测试边界（重要）
+### 1.0 运行环境与 Mock 边界（重要）
+
+- **运行环境**：必须在 conda `rag-demo` 下执行（`conftest` 会校验解释器路径）
+  - 命令：`conda activate rag-demo && pytest tests/ -q`
+- **Mock 仅隔离外部链路**：DashScope Embedding HTTP（本地稳定哈希向量）
+- **内部依赖不 mock**：真实抽取引擎（v0.7 起为 MinerU）、真实 `ChunkPipeline`、真实 MySQL Store
+- **数据隔离**：测试写入独立库 `rag_demo_test`（不污染业务库 `rag_demo`）；每条用例前后 `TRUNCATE`
+- **抽取性能**：session 级真实抽取缓存；`/rag/extract` 成功用例仍走完整 HTTP 抽取路径
+
+### 1.1 抽取相关测试边界
 
 | 层级 | 测什么 | 当前状态 |
 |------|--------|----------|
-| 契约层（pytest 默认） | `/rag/extract`、`/rag/chunks` 入参校验、错误码、编排流程 | **已实现**；`PdfExtractPipeline` 在 fixture 中替换为 `TestPdfExtractPipeline`（pypdf 模拟） |
-| 实现层（真实 Unstructured） | `partition_pdf(hi_res)`、表格 HTML、TextCleaner、续表合并 | **未纳入默认 pytest**；需本地 curl / 手工验收（见 `08`、操作手册） |
+| 集成（pytest） | `/rag/extract` 入参、错误码；MinerU 真实抽取 + 清洗门禁 | **待随 v0.7 代码落地**；仅 mock Embedding |
+| 单元 | 清洗规则（半截重复/碎片/乱码）、表格质量门禁 | **待补** |
+| 手工验收 | 业务库 OBD 等 PDF：无半截残留、无可读乱码表 | 见 `08` §10 |
 
-规则：契约层通过 ≠ 真实 Unstructured 抽取可用；发布前需在 conda `rag-demo` 环境手工打通 `/rag/extract`。
+### 1.2 切块相关测试边界
+
+| 层级 | 测什么 | 当前状态 |
+|------|--------|----------|
+| 单元（pytest） | 文本块先拼再切、表格行组 + 表头附着、空输入报错 | **已实现**（`tests/test_chunk_pipeline.py`） |
+| 集成 | `/rag/chunks` 入参与错误码 + 真实切块写库 | **已实现**（见 §3.0） |
+
+切块算法权威文档：`spec/architecture/09_document_chunking.md`。
 
 ## 2. 覆盖目标
 
 - 接口覆盖（已实现）：`/rag/extract`、`/rag/chunks`（`doc_ids`）、`/rag/index/build`、`/rag/query`、`/rag/health`
-- 抽取契约覆盖（已实现）：空 documents、非 PDF、文件不存在、双文档抽取成功、`DOCUMENT_NOT_EXTRACTED`
-- 抽取实现覆盖（待补自动化）：真实 `partition_pdf`、TextCleaner、表格 HTML 持久化、续表合并（标记为 integration，默认不跑）
-- 监控接口覆盖：`/rag/metrics`
-- 测评接口覆盖：`/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs`
+- 抽取契约覆盖（已实现）：空 documents、非 PDF、文件不存在、双文档真实抽取成功、`DOCUMENT_NOT_EXTRACTED`
+- 抽取实现：默认 pytest 已走真实 Unstructured（测试库）；业务库手工 curl 仍见操作手册
+- 监控接口覆盖：`/rag/metrics`（真实 MySQL `rag_query_logs`）
+- 测评接口覆盖：`/rag/eval/dataset`、`/rag/eval/run`、`/rag/eval/runs`（真实 MySQL）
 - 规则覆盖：空输入、非法 `top_k`、非法 `window_minutes`、索引未初始化、召回为空、评测集为空、`enabled` 样本筛选、`case_ids` 精确匹配
 - 结果覆盖：召回结构完整、上下文数量与质量符合约束、监控指标聚合正确、评测指标计算正确、测评不污染在线监控日志
 
 ## 3. 测试用例清单
 
-> 覆盖结论（当前代码）：抽取契约 + 切块/索引/查询 + 监控 + 测评用例已覆盖。  
-> 最近一次执行结果（2026-07-19）：共 37 条，`通过 36`，`预期失败 1`（已知差距）。  
-> 执行命令：`pytest tests/ -q`（需在 conda `rag-demo` 解释器下执行）。
+> 覆盖结论（当前代码）：真实抽取/切块/MySQL + Embedding mock + 切块单元 + 监控/测评已覆盖。  
+> 最近一次执行结果（2026-07-20）：共 42 条；执行命令：`conda activate rag-demo && pytest tests/ -q`。
 
-### 3.0 抽取与切块用例（已实现，契约层）
+### 3.0 抽取与切块用例（已实现，集成层）
 
 > 说明：以下用例写入 `tests/test_rag_api.py`。  
-> 测试环境：`PdfExtractPipeline` → `TestPdfExtractPipeline`（pypdf）；`MySQLDocumentStore` / `MySQLChunkStore` → 内存实现；不调用真实 Unstructured。
+> 测试环境：conda `rag-demo`；真实 Unstructured + 真实切块 + MySQL `rag_demo_test`；仅 mock Embedding。
 
 | case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
 |---|---|---|---|---|---|---|
-| `rag_extract_ok_001` | contract | 双文档抽取成功 | `documents=[{doc_id,file_path}, ...]`（2 份 PDF） | `200`；`extracted_doc_count=2`；`total_page_count>0`；`total_char_count>0` | 已执行-通过 | mock pipeline |
+| `rag_extract_ok_001` | integration | 双文档真实抽取成功 | `documents=[{doc_id,file_path}, ...]`（2 份 PDF） | `200`；`extracted_doc_count=2`；`total_page_count>0`；`total_char_count>0` | 已执行-通过 | 真实 Unstructured |
 | `rag_extract_fail_empty_001` | contract | 空文档数组抽取 | `documents=[]` | `422` | 已执行-通过 | 边界校验 |
 | `rag_extract_fail_non_pdf_001` | contract | 非 PDF 路径抽取 | `file_path="docs/a.txt"` | `422` | 已执行-通过 | 仅支持 PDF |
 | `rag_extract_fail_file_not_found_001` | contract | 本地文件不存在 | `file_path="docs/not_exist.pdf"` | `422` | 已执行-通过 | 文件存在性校验 |
-| `rag_chunks_ok_001` | contract | 先抽取后切块 | 先 `/rag/extract`，再 `doc_ids=[...]` | `200`；`stored_doc_count=2`；`stored_chunk_count>0` | 已执行-通过 | 三阶段流程契约 |
+| `rag_chunks_ok_001` | integration | 真实抽取结果切块 | 写入真实 blocks 后 `doc_ids=[...]` | `200`；`stored_doc_count=2`；`stored_chunk_count>0` | 已执行-通过 | 真实 ChunkPipeline |
 | `rag_chunks_fail_empty_001` | contract | 空 doc_ids 切块 | `doc_ids=[]` | `422` | 已执行-通过 | 边界校验 |
 | `rag_chunks_fail_not_extracted_001` | contract | 未抽取直接切块 | `doc_ids=["missing-doc"]` | `400` + `DOCUMENT_NOT_EXTRACTED` | 已执行-通过 | 阶段解耦约束 |
+
+### 3.0.1 切块单元用例（已实现）
+
+> 说明：写入 `tests/test_chunk_pipeline.py`，不依赖 MySQL / HTTP。
+
+| case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
+|---|---|---|---|---|---|---|
+| `rag_chunk_unit_blocks_path_001` | unit | 有 blocks | paragraph + table | 含 `paragraph`/`table_rows` | 已执行-通过 | 段落先拼再切 |
+| `rag_chunk_unit_merge_short_paragraphs_001` | unit | 连续短段含标题 | 6 个短 paragraph | 合并为 1 个 chunk，含全部标题与正文 | 已执行-通过 | 修复标题碎块 |
+| `rag_chunk_unit_paragraph_flush_before_table_001` | unit | 段落夹表格 | 段-表-段 | 段落与表格分块，不混 HTML | 已执行-通过 | 表前 flush |
+| `rag_chunk_unit_fallback_001` | unit | 无 blocks 回退 | `blocks=[]` + full_text | 全部 `chunk_kind=full_text_fallback` | 已执行-通过 | 回退 |
+| `rag_chunk_unit_table_header_001` | unit | 表格表头附着 | 多行表 + 小 chunk_size | 每个 chunk 为 **Markdown** 且含表头 | 待随实现更新 | 原 HTML 断言作废 |
+| `rag_chunk_unit_table_fallback_001` | unit | 无行表格降级 | 无法解析的 table | `table_fallback`；仍非 HTML 乱码 | 待随实现更新 | |
+| `rag_chunk_unit_empty_input_001` | unit | 输入皆空 | blocks 与 full_text 皆空 | `EmptyChunkInputError` | 已执行-通过 | 异常 |
 
 ### 3.1 索引 / 查询 / 回归用例（已实现）
 
@@ -68,7 +98,7 @@
 ### 3.2 监控用例（已实现）
 
 > 说明：监控接口代码已落地（`monitoring_store.py`），以下用例已写入 `tests/test_rag_api.py` 并通过执行。  
-> 测试环境：使用 InMemory `MonitoringStore` mock，支持时间窗口过滤；不依赖真实 MySQL 已有数据。
+> 测试环境：真实 MySQL `rag_demo_test.rag_query_logs`；仅 mock Embedding。
 
 | case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
 |---|---|---|---|---|---|---|
@@ -81,7 +111,7 @@
 
 > 说明：测评接口代码已落地（`eval_store.py`、`eval_metrics.py`），以下用例已写入测试代码并通过执行。  
 > 集成/回归用例：`tests/test_rag_api.py`；评测指标单元用例：`tests/test_eval_metrics.py`。  
-> 测试环境：使用 InMemory 存储 mock（`MySQLChunkStore` / `EvalStore` / `MonitoringStore`），不依赖真实 MySQL 已有数据。
+> 测试环境：真实 MySQL `rag_demo_test` 评测表；仅 mock Embedding。
 
 | case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
 |---|---|---|---|---|---|---|
@@ -117,15 +147,17 @@
 - 本验收**不纳入** `pytest` 默认门禁（依赖真实 embedding 与全量语料，执行成本高）
 - 检索链路变更（切分、embedding、top_k 策略）后必须重跑并更新 `06` baseline
 
-### 3.5 抽取实现层验收（手工 / 待自动化）
+### 3.5 抽取实现层验收（业务库）
 
-> 对应 `08_document_extraction.md`。默认 pytest **不覆盖**本层。
+> 对应 `08_document_extraction.md`（MinerU，`extract_version=mineru-v1`）。
 
 | 验收项 | 执行方式 | 期望 | 备注 |
 |---|---|---|---|
-| 真实 Unstructured 抽取 | conda `rag-demo` 启动服务；`POST /rag/extract` 传本地 PDF | `200`；`extracted_doc_count>0`；`extract_version=unstructured-v1` | 依赖 `unstructured==0.18.32` + `unstructured-inference` 1.5–1.6 |
-| 表格 HTML | 查 `rag_documents.blocks` / 响应 `reports.table_count` | 表格块含 HTML（`text_as_html` 链路） | 首次可能下载 Table Transformer（HF） |
-| 阶段解耦 | extract 后不调 chunks 直接 query | 不可检索；切块后再 build 才可查 | 与契约用例一致 |
+| MinerU 抽取 | conda `rag-demo`；`POST /rag/extract` | `200`；`extract_version=mineru-v1` | 依赖本地 MinerU |
+| 结构类型 | 查 `rag_documents.blocks` | 含 `title`（若文档有标题） | 不得「全是 paragraph」 |
+| 无半截残留 | 抽 OBD 手册 | 无「完整句 + 后缀碎片」成对 | 清洗 C5 |
+| 表格可读 | 查 blocks HTML + chunks Markdown | blocks 可读 HTML；chunks 为 MD 管道表 | `08` §6 / `09` §3.2 |
+| 阶段解耦 | extract 后不调 chunks 直接 query | 不可检索 | |
 
 ## 4. 测试沉淀规则
 
@@ -133,10 +165,11 @@
 - 每修复一个缺陷，必须新增对应回归用例
 - 回归用例按 `case_id` 长期保留，不允许随意删除
 - 任何发布前，回归集必须全量通过
-- **Spec 承诺的核心能力**（如 Unstructured 抽取）若仅有 mock 契约测试，必须在本页标明边界，并保留实现层验收项
+- **Mock 仅用于外部链路**（如 Embedding HTTP）；内部依赖（抽取、切块、MySQL）禁止用 mock 绕过核心逻辑
 
 ## 5. 变更同步要求
 
 - 接口变更后，必须同步更新本页覆盖目标与用例清单
 - 流程变更后，必须新增阶段间联动测试用例
-- 抽取引擎变更后，必须同步更新 §1.1 边界、§3.0 契约用例与 §3.5 实现层验收
+- 抽取引擎变更后，必须同步更新 §1.0/§1.1 边界、§3.0 用例与 §3.5 业务库验收
+- Mock 边界变更后，必须同步更新 §1.0

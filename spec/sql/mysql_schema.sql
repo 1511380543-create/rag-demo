@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS `rag_documents` (
   `page_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '有效页数',
   `char_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'full_text字符数',
   `full_text` LONGTEXT NOT NULL COMMENT '供切块层读取的全文',
-  `blocks` JSON NOT NULL COMMENT '有序块数组(paragraph/table html)',
+  `blocks` JSON NOT NULL COMMENT '有序块数组(title/paragraph/list_item/table)',
   `extract_report` JSON NULL COMMENT '抽取统计报告',
   `metadata` JSON NULL COMMENT '文档级元数据',
   `content_hash` CHAR(64) NOT NULL COMMENT 'full_text内容哈希',

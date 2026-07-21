@@ -2,7 +2,7 @@
 
 > 本文档定义 RAG 处理链路。  
 > 适用场景：流程实现、模块拆分、联调排错。  
-> 抽取细节见 `08_document_extraction.md`。
+> 抽取细节见 `08_document_extraction.md`；切块细节见 `09_document_chunking.md`。
 
 ## 1. 目标
 
@@ -22,11 +22,11 @@
 
 处理：
 
-1. 原生 `unstructured.partition_pdf` 加载 PDF 元素（`hi_res` + 表格结构推断）
-2. `Element[]` → 内部节点（段落 / 表格）
-3. TextCleaner 清洗链（段落过滤，Table 跳过文本清洗）
-4. 跨页续表合并（Table HTML）
-5. 渲染 `full_text` 与 `blocks`，覆盖写入 `rag_documents`
+1. 本地 **MinerU** 解析 PDF（阅读序结构化结果）
+2. 映射为内部 `ContentBlock`（保留 `title` / `paragraph` / `list_item` / `table`）
+3. 企业级清洗链（半截重复、垃圾碎片、乱码行、NFKC 等，见 `08` §5）
+4. 表格质量门禁；跨页表优先信任 MinerU，必要时兜底合并
+5. 渲染 `full_text` 与 `blocks`，覆盖写入 `rag_documents`（`extract_version=mineru-v1`）
 
 输出：
 
@@ -46,9 +46,11 @@
 
 处理：
 
-1. 从 `rag_documents` 读取 `full_text`（**不读本地 PDF**）
-2. 沿用现有 `SentenceSplitter` 切分
+1. 从 `rag_documents` 读取 `blocks` 与 `full_text`（**不读本地 PDF**）
+2. **有 blocks**：连续**文本块**（`title` / `paragraph` / `list_item`）先拼再切；碰到 `table` 先切完已拼文本，表格 **HTML→Markdown 后按行组切**（每块重复表头）。**无 blocks**：整篇 `full_text` + `SentenceSplitter`
 3. 覆盖写入 `rag_chunks`
+
+> 切块细节见 `09_document_chunking.md`。
 
 输出：
 
@@ -118,7 +120,7 @@
 | 阶段 | 数据来源 | 禁止行为 |
 |------|---------|---------|
 | 抽取 | 本地 PDF | — |
-| 切块 | `rag_documents.full_text` | 不得读取本地 PDF |
+| 切块 | `rag_documents.blocks`（优先）/ `full_text`（回退） | 不得读取本地 PDF |
 | 索引构建 | `rag_chunks` | 不得读取本地 PDF / `rag_documents` 以外的来源 |
 
 - 抽取成功 ≠ 可检索，必须完成切块 + 索引构建
@@ -137,4 +139,4 @@
 - 可在不变更本地文件的前提下，基于 MySQL 重建索引
 - 同一 `doc_id` 重复抽取/切块后，索引构建使用最新数据
 - 查询结果中的 `chunk_id` 与 `rag_chunks.id` 一致（字符串形式）
-- 表格以 HTML 形式存在于 `rag_documents.blocks`，并进入 `full_text`
+- 表格以 **HTML** 存在于 `rag_documents.blocks`；进入 `rag_chunks` 后为 **Markdown**

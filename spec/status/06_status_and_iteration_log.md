@@ -6,28 +6,32 @@
 ## 1. 当前状态
 
 - 核心接口已实现：`/rag/extract`、`/rag/chunks`（`doc_ids`）、`/rag/index/build`、`/rag/query`、`/rag/health` 及监控/测评接口
-- **当前实现**：抽取/切块已分离——`partition_pdf` 写入 `rag_documents`，切块只读 `full_text` 写入 `rag_chunks`
-- 抽取引擎：原生 `unstructured.partition_pdf`（`extract_version=unstructured-v1`），见 `08_document_extraction.md`
-- 自动化测试：契约层 37 条（含抽取/切块），见 `05`；真实 Unstructured 实现层仍以手工 curl 验收为主
+- **抽取（spec v0.7，代码待落地）**：引擎改为 MinerU；企业级清洗 + 表格质量门禁；`blocks` 保留 `title`/`paragraph`/`list_item`/`table`；见 `08`
+- **切块（spec 已更新；表格 MD 代码待随实现）**：连续文本块先拼再切；表格 chunk 为 Markdown 行组；见 `09`
+- **当前代码**：切块仍可能输出 HTML 表；与最新 `09` 不一致，实现时一并改
+- 自动化测试：须在 conda `rag-demo` 执行；仅 mock Embedding；测试库 `rag_demo_test`（见 `05`）
+- 业务库手工 curl 验收见操作手册（MinerU 落地后按 `08` §10）
 
-## 2. 目标状态（spec 目标 v0.5，代码已落地）
+## 2. 目标状态（spec 目标 v0.7）
 
 - 目标接口：`/rag/extract`、`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
 - 目标流程：
-  - 阶段一：原生 `unstructured.partition_pdf` 抽取 → TextCleaner 清洗 → 续表合并 → `rag_documents`
-  - 阶段二：读 `full_text` → 现有 `SentenceSplitter` 切块 → `rag_chunks`
+  - 阶段一：MinerU 解析 → 企业级清洗 → 表格门禁 → `rag_documents`（`extract_version=mineru-v1`）
+  - 阶段二：文本块先拼再切；表格 HTML→Markdown 行组 → `rag_chunks`
   - 阶段三：从 `rag_chunks` 构建向量索引
 - 目标存储：
-  - `rag_documents`：抽取中间层（blocks + full_text，表格为 HTML）
-  - `rag_chunks`：切块结果
+  - `rag_documents`：blocks（含 title/list_item）+ full_text，表格为可读 HTML
+  - `rag_chunks`：文本纯文本；表格为 Markdown
   - 原始 PDF 不入 MySQL
+- **当前代码仍为 Unstructured 抽取路径**，与 v0.7 不一致
 
 ## 3. 已知差距
 
-- 抽取**实现层**自动化测试未补齐（pytest 默认 mock `PdfExtractPipeline`，不跑真实 Unstructured）
+- **v0.7 抽取代码尚未实现**（spec 已切换 MinerU）
 - 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
 - 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
-- 监控与测评能力已实现：监控埋点、指标聚合、评测集管理与评测执行
+- MinerU 落地后须全量重抽 + 重切 + 重建索引，并重跑评测更新 baseline
+- pytest 默认仅 mock Embedding；业务库手工联调见操作手册
 
 ## 4. 监控与测评（已实现）
 
@@ -58,6 +62,20 @@
 
 ## 6. 迭代记录
 
+- 2026-07-20（抽取推倒重做 spec v0.7）：
+  - 引擎：Unstructured → MinerU（本地）
+  - 清洗：半截重复 / 垃圾碎片 / 乱码行 / NFKC；表格质量门禁，乱码表禁止入库
+  - blocks 保留 `title` / `paragraph` / `list_item` / `table`（表为 HTML）
+  - **chunks 内表格改为 Markdown**（HTML→MD 在切块层完成）
+  - 同步 `08`/`01`/`02`/`03`/`09`/`05`/`06` 与主文档；**抽取与表 MD 切块代码待开发**
+- 2026-07-20（测试 Mock 边界收紧）：
+  - pytest 强制 conda `rag-demo`；仅 mock Embedding HTTP
+  - 真实抽取 / ChunkPipeline / MySQL（独立库 `rag_demo_test`）
+  - 去掉 InMemory Store 与 pypdf 伪抽取
+- 2026-07-20（文档切块重设计 v0.6）：
+  - 决策：1C（优先 `blocks`，回退 `full_text`）+ 2B（表格按行组切，chunk 携带 caption/thead）
+  - 新增 `09_document_chunking.md`；同步 `01`/`02`/`03`/`04`/`08` 与主文档版本
+  - 代码：`app/chunk/` 结构感知切块模块，接入 `rag_service.chunk_documents`
 - 2026-07-19（测试 spec 同步）：
   - 更新 `05_test_plan_and_cases.md`：补充抽取契约用例、切块 `doc_ids`、契约/实现层边界；执行结果更新为 37 条（36 通过 / 1 xfail）
   - 同步本页当前状态：抽取/切块代码已落地，差距改为「实现层自动化未补」

@@ -29,7 +29,7 @@
 - 同一 `doc_id` 重复切块必须覆盖 `rag_chunks` 旧数据
 - `doc_id + chunk_index` 必须唯一
 - 索引构建数据源固定为 `rag_chunks`，不直接读取本地 PDF
-- 切块数据源固定为 `rag_documents.full_text`，不直接读取本地 PDF
+- 切块数据源优先 `rag_documents.blocks`，回退 `full_text`，不直接读取本地 PDF
 
 ## 4. 稳定性约束
 

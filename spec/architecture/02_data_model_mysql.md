@@ -8,7 +8,7 @@
 - MySQL 存储抽取中间层（`rag_documents`）与切块结果（`rag_chunks`）
 - 不存储原始 PDF 文件
 - 通过 `doc_id + chunk_index` 保证文档内分片唯一性
-- 索引构建必须以 `rag_chunks` 为数据源；切块必须以 `rag_documents.full_text` 为数据源
+- 索引构建必须以 `rag_chunks` 为数据源；切块优先读 `rag_documents.blocks`，`blocks` 为空时回退 `full_text`（见 `09`）
 
 ## 2. 连接配置
 
@@ -37,12 +37,12 @@ export MYSQL_DATABASE="rag_demo"
 - `id`: bigint 主键，自增
 - `doc_id`: varchar(128)，业务文档 ID
 - `file_path`: varchar(512)，抽取时的本地 PDF 路径
-- `extract_version`: varchar(64)，抽取器版本（如 `unstructured-v1`）
+- `extract_version`: varchar(64)，抽取器版本（如 `mineru-v1`）
 - `page_count`: int，无符号，有效页数
 - `char_count`: int，无符号，`full_text` 字符数
-- `full_text`: longtext，供切块层读取的唯一文本输入
-- `blocks`: json，有序块数组（paragraph / table html）
-- `extract_report`: json，抽取统计（过滤、续表合并等，可空）
+- `full_text`: longtext，切块回退路径的文本输入（`blocks` 为空时使用）
+- `blocks`: json，有序块数组（`title` / `paragraph` / `list_item` / `table`）；切块优先输入
+- `extract_report`: json，抽取统计（清洗丢弃、表格门禁、续表等，可空）
 - `metadata`: json，文档级元数据（可空）
 - `content_hash`: char(64)，`full_text` 内容哈希
 - `created_at`: datetime(3)，创建时间
@@ -52,24 +52,35 @@ export MYSQL_DATABASE="rag_demo"
 
 - 唯一索引：`uk_doc_id(doc_id)`
 
-`blocks` 元素约定：
+`blocks` 元素约定（见 `08`）：
 
-| 字段 | paragraph | table |
-|------|-----------|-------|
-| `type` | `"paragraph"` | `"table"` |
+| 字段 | title / paragraph / list_item | table |
+|------|-------------------------------|-------|
+| `type` | `"title"` / `"paragraph"` / `"list_item"` | `"table"` |
 | `order` | int | int |
-| `text` | 正文 | — |
-| `html` | — | Unstructured 输出的 HTML |
-| `logical_table_id` | — | 可选，续表合并后的逻辑表 ID |
+| `text` | 文本 | — |
+| `html` | — | MinerU 输出的 HTML |
+| `logical_table_id` | — | 可选 |
 
 ### 3.2 `rag_chunks`
 
 - `id`: bigint 主键，自增
 - `doc_id`: varchar(128)，来源文档业务 ID
 - `chunk_index`: int，无符号，文档内分片序号（从 0 开始）
-- `chunk_text`: longtext，分片原文
-- `metadata`: json，分片级元数据
+- `chunk_text`: longtext，分片原文（文本为纯文本；**表格为 Markdown 管道表**）
+- `metadata`: json，分片级元数据（约定见下）
 - `created_at`: datetime(3)，创建时间
+
+`rag_chunks.metadata` 约定（切块写入）：
+
+| 字段 | 何时存在 | 说明 |
+|------|---------|------|
+| `doc_id` / `file_path` / `chunk_index` | 始终 | 文档与分片定位 |
+| `chunk_kind` | 始终 | `paragraph` / `table_rows` / `table_fallback` / `full_text_fallback` |
+| `block_type` | 结构路径 | `paragraph` / `table` |
+| `table_format` | 表格 chunk | 固定 `"markdown"` |
+| `logical_table_id` | 表格且有值 | 透传自 blocks |
+| `table_row_start` / `table_row_end` | `table_rows` | 本批行范围（0-based，含端点） |
 
 索引约束：
 
@@ -147,12 +158,12 @@ export MYSQL_DATABASE="rag_demo"
 ## 4. 数据生命周期规则
 
 - 新文档抽取：
-  - 从本地 PDF 抽取，经 TextCleaner 清洗与续表合并
-  - 写入 `rag_documents`（`full_text` + `blocks`）
+  - 本地 PDF → MinerU → 企业级清洗 / 表格门禁 → 写入 `rag_documents`（`full_text` + `blocks`）
 - 文档覆盖抽取（同 `doc_id`）：
   - 先删除旧 `rag_documents` 记录，再写入新记录
 - 文档切块：
-  - 从 `rag_documents.full_text` 读取，**不读本地 PDF**
+  - 优先从 `rag_documents.blocks` 切块；`blocks` 为空则回退 `full_text`；**不读本地 PDF**
+  - 文本类 `title` / `paragraph` / `list_item` 连续拼接后再切；`table` 单独行组切（见 `09`）
   - 覆盖写入 `rag_chunks`（同 `doc_id` 先删后写）
 - 索引构建：
   - 按 `doc_ids`（可选）读取 `rag_chunks`

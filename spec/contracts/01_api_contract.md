@@ -5,8 +5,8 @@
 
 ## 1. 接口总览
 
-- `POST /rag/extract`：文档抽取入库（本地 PDF -> 清洗/续表 -> MySQL `rag_documents`）
-- `POST /rag/chunks`：文档切块入库（`rag_documents.full_text` -> MySQL `rag_chunks`）
+- `POST /rag/extract`：文档抽取入库（本地 PDF → MinerU → 清洗/表格门禁 → MySQL `rag_documents`）
+- `POST /rag/chunks`：文档切块入库（优先 `rag_documents.blocks` 结构感知切块，回退 `full_text` → MySQL `rag_chunks`）
 - `POST /rag/index/build`：索引构建（MySQL -> 向量索引）
 - `POST /rag/query`：查询召回
 - `GET /rag/health`：健康检查
@@ -37,9 +37,14 @@
 
 - `ExtractReport`
   - `doc_id: str`
-  - `dropped_elements: int`（清洗丢弃的元素数）
-  - `table_count: int`（表格块数量）
-  - `merged_continuations: int`（续表合并次数）
+  - `dropped_elements: int`（清洗丢弃的文本块总数）
+  - `dropped_fragments: int`（半截重复 + 垃圾碎片，默认 `0`）
+  - `dropped_garbled: int`（乱码行丢弃，默认 `0`）
+  - `table_count: int`（最终入库表格块数）
+  - `table_quality_failed: int`（表格质量门禁未通过数，默认 `0`）
+  - `merged_continuations: int`（兜底续表合并次数）
+
+> 抽取算法与质量规则见 `spec/architecture/08_document_extraction.md`（MinerU，`extract_version=mineru-v1`）。
 
 ### 2.3 失败响应
 
@@ -47,6 +52,9 @@
 - `500`：抽取或 MySQL 写入异常（错误码 `DOCUMENT_EXTRACT_ERROR`）
 
 ## 3. 文档切块入库 `POST /rag/chunks`
+
+> 切块算法见 `spec/architecture/09_document_chunking.md`。  
+> 请求/响应字段不变：仍只收 `doc_ids`，返回入库计数。
 
 ### 3.1 请求模型
 
@@ -63,7 +71,7 @@
 
 - `422`：`doc_ids` 为空、含空字符串
 - `400`：文档尚未抽取（错误码 `DOCUMENT_NOT_EXTRACTED`）
-- `500`：切块或 MySQL 写入异常（错误码 `CHUNK_INGEST_ERROR`）
+- `500`：切块或 MySQL 写入异常（错误码 `CHUNK_INGEST_ERROR`；含 `blocks` 与 `full_text` 皆空）
 
 ## 4. 索引构建 `POST /rag/index/build`
 
