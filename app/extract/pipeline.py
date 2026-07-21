@@ -1,45 +1,44 @@
 import hashlib
 from typing import Any
 
-from unstructured.documents.elements import Element, PageBreak
-
-from app.extract.cleaners import EXTRACT_CLEANERS, is_table_node, resolve_category
+from app.extract.cleaners import CleanStats, apply_text_cleaners, filter_tables_by_quality, is_table_node
+from app.extract.mapper import map_content_list_to_nodes
+from app.extract.mineru_loader import EXTRACT_VERSION, load_pdf_content_list
 from app.extract.models import ContentBlock, ExtractReport, ExtractedDocument
 from app.extract.nodes import ExtractNode
 from app.extract.table_continuation import merge_table_continuations, wrap_table_html
 from app.extract.text_renderer import render_full_text
-from app.extract.unstructured_loader import EXTRACT_VERSION, load_pdf_elements
-
-TABLE_CATEGORY = "Table"
 
 
 class PdfExtractPipeline:
-    """PDF 抽取编排：加载、清洗、续表合并、渲染。"""
+    """PDF 抽取编排：MinerU 加载 → 映射 → 清洗 → 表格门禁 → 续表兜底 → 渲染。"""
 
     def extract(self, doc_id: str, file_path: str, metadata: dict[str, Any] | None = None) -> ExtractedDocument:
-        elements = load_pdf_elements(file_path)
-        if not elements:
-            raise ValueError(f"文档内容为空，无法抽取: {file_path}")
-
-        nodes = self._elements_to_nodes(elements)
+        items, page_count = load_pdf_content_list(file_path)
+        nodes, discarded_other = map_content_list_to_nodes(items)
         if not nodes:
             raise ValueError(f"文档内容为空，无法抽取: {file_path}")
 
-        report = ExtractReport(element_count=len(nodes))
-        cleaned_nodes, dropped = self._run_cleaners(nodes)
-        report.dropped_elements = dropped
+        stats = CleanStats(discarded_other=discarded_other)
+        cleaned = apply_text_cleaners(nodes, stats)
+        cleaned = filter_tables_by_quality(cleaned, stats)
+        if not cleaned:
+            raise ValueError(f"文档内容为空，无法抽取: {file_path}")
 
-        blocks = self._nodes_to_blocks(cleaned_nodes)
+        blocks = self._nodes_to_blocks(cleaned)
         blocks, merged_count = merge_table_continuations(blocks)
-        report.merged_continuations = merged_count
-        report.table_count = sum(1 for block in blocks if block.block_type == "table")
-        report.paragraph_block_count = sum(1 for block in blocks if block.block_type == "paragraph")
+
+        report = self._build_report(
+            element_count=len(items),
+            stats=stats,
+            blocks=blocks,
+            merged_continuations=merged_count,
+        )
 
         full_text = render_full_text(blocks)
         if not full_text:
             raise ValueError(f"文档内容为空，无法抽取: {file_path}")
 
-        page_count = self._estimate_page_count(elements)
         doc_metadata = dict(metadata or {})
         doc_metadata["doc_id"] = doc_id
         doc_metadata["file_path"] = file_path
@@ -55,39 +54,6 @@ class PdfExtractPipeline:
             content_hash=self._compute_hash(full_text),
             extract_report=report,
         )
-
-    @staticmethod
-    def _elements_to_nodes(elements: list[Element]) -> list[ExtractNode]:
-        nodes: list[ExtractNode] = []
-        for index, element in enumerate(elements):
-            if isinstance(element, PageBreak):
-                continue
-            metadata = dict(element.metadata.to_dict())
-            category = resolve_category(metadata) or str(getattr(element, "category", "")).strip()
-            metadata["category"] = category
-            if category == TABLE_CATEGORY:
-                html = str(metadata.get("text_as_html") or element.text or "").strip()
-                metadata["table_html"] = html
-                nodes.append(ExtractNode(text=html, metadata=metadata, node_id=f"table-{index}"))
-            else:
-                nodes.append(
-                    ExtractNode(
-                        text=str(element.text or ""),
-                        metadata=metadata,
-                        node_id=f"text-{index}",
-                    )
-                )
-        return nodes
-
-    @staticmethod
-    def _run_cleaners(nodes: list[ExtractNode]) -> tuple[list[ExtractNode], int]:
-        current = nodes
-        total_dropped = 0
-        for cleaner in EXTRACT_CLEANERS:
-            before = len(current)
-            current = cleaner(current)
-            total_dropped += before - len(current)
-        return current, total_dropped
 
     @staticmethod
     def _nodes_to_blocks(nodes: list[ExtractNode]) -> list[ContentBlock]:
@@ -108,20 +74,46 @@ class PdfExtractPipeline:
                 )
                 continue
             text = (node.text or "").strip()
-            if text:
-                blocks.append(ContentBlock(block_type="paragraph", order=order, text=text))
+            if not text:
+                continue
+            blocks.append(
+                ContentBlock(
+                    block_type=node.node_type,
+                    order=order,
+                    text=text,
+                )
+            )
+        # 重新编号，保证 order 连续
+        for order, block in enumerate(blocks):
+            block.order = order
         return blocks
 
     @staticmethod
-    def _estimate_page_count(elements: list[Element]) -> int:
-        page_numbers: set[int] = set()
-        for element in elements:
-            page_number = element.metadata.page_number
-            if isinstance(page_number, int) and page_number > 0:
-                page_numbers.add(page_number)
-        if page_numbers:
-            return len(page_numbers)
-        return max(len(elements), 1)
+    def _build_report(
+        *,
+        element_count: int,
+        stats: CleanStats,
+        blocks: list[ContentBlock],
+        merged_continuations: int,
+    ) -> ExtractReport:
+        title_count = sum(1 for block in blocks if block.block_type == "title")
+        paragraph_count = sum(1 for block in blocks if block.block_type == "paragraph")
+        list_item_count = sum(1 for block in blocks if block.block_type == "list_item")
+        table_count = sum(1 for block in blocks if block.block_type == "table")
+        dropped_elements = stats.dropped_elements + stats.discarded_other
+        return ExtractReport(
+            element_count=element_count,
+            dropped_elements=dropped_elements,
+            dropped_fragments=stats.dropped_fragments,
+            dropped_garbled=stats.dropped_garbled,
+            table_count=table_count,
+            table_quality_failed=stats.table_quality_failed,
+            merged_continuations=merged_continuations,
+            title_count=title_count,
+            paragraph_count=paragraph_count,
+            list_item_count=list_item_count,
+            paragraph_block_count=paragraph_count,
+        )
 
     @staticmethod
     def _compute_hash(full_text: str) -> str:

@@ -25,9 +25,15 @@ class ExtractRequest(BaseModel):
 class ExtractReportItem(BaseModel):
     doc_id: str
     dropped_elements: int
+    dropped_fragments: int = 0
+    dropped_garbled: int = 0
     table_count: int
+    table_quality_failed: int = 0
     merged_continuations: int
-    paragraph_block_count: int
+    paragraph_block_count: int = 0
+    title_count: int = 0
+    paragraph_count: int = 0
+    list_item_count: int = 0
 
 
 class ExtractResponse(BaseModel):

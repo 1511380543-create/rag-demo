@@ -1,12 +1,14 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
+
+BlockType = Literal["title", "paragraph", "list_item", "table"]
 
 
 @dataclass
 class ContentBlock:
     """抽取后的有序内容块。"""
 
-    block_type: Literal["paragraph", "table"]
+    block_type: BlockType
     order: int
     text: str | None = None
     html: str | None = None
@@ -15,20 +17,33 @@ class ContentBlock:
 
 @dataclass
 class ExtractReport:
-    """抽取统计报告。"""
+    """抽取统计报告（与 spec 08 / API ExtractReport 对齐）。"""
 
     element_count: int = 0
     dropped_elements: int = 0
+    dropped_fragments: int = 0
+    dropped_garbled: int = 0
     table_count: int = 0
+    table_quality_failed: int = 0
     merged_continuations: int = 0
+    title_count: int = 0
+    paragraph_count: int = 0
+    list_item_count: int = 0
+    # 兼容旧字段名：等于 paragraph_count
     paragraph_block_count: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
             "element_count": self.element_count,
             "dropped_elements": self.dropped_elements,
+            "dropped_fragments": self.dropped_fragments,
+            "dropped_garbled": self.dropped_garbled,
             "table_count": self.table_count,
+            "table_quality_failed": self.table_quality_failed,
             "merged_continuations": self.merged_continuations,
+            "title_count": self.title_count,
+            "paragraph_count": self.paragraph_count,
+            "list_item_count": self.list_item_count,
             "paragraph_block_count": self.paragraph_block_count,
         }
 

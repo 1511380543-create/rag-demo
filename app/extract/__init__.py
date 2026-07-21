@@ -1,7 +1,6 @@
 """文档抽取模块。"""
 
 from app.extract.models import ContentBlock, ExtractedDocument, ExtractReport
-from app.extract.pipeline import PdfExtractPipeline
 
 __all__ = [
     "ContentBlock",
@@ -9,3 +8,12 @@ __all__ = [
     "ExtractedDocument",
     "PdfExtractPipeline",
 ]
+
+
+def __getattr__(name: str):
+    # 延迟加载，避免仅使用 models 时拉取 MinerU
+    if name == "PdfExtractPipeline":
+        from app.extract.pipeline import PdfExtractPipeline
+
+        return PdfExtractPipeline
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

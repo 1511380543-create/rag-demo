@@ -161,7 +161,7 @@ class MySQLDocumentStore:
             if not isinstance(item, dict):
                 continue
             block_type = str(item.get("type", "")).strip()
-            if block_type not in {"paragraph", "table"}:
+            if block_type not in {"title", "paragraph", "list_item", "table"}:
                 continue
             blocks.append(
                 ContentBlock(
@@ -181,12 +181,21 @@ class MySQLDocumentStore:
         parsed = json.loads(value) if isinstance(value, str) else value
         if not isinstance(parsed, dict):
             return None
+        paragraph_count = int(
+            parsed.get("paragraph_count", parsed.get("paragraph_block_count", 0))
+        )
         return ExtractReport(
             element_count=int(parsed.get("element_count", 0)),
             dropped_elements=int(parsed.get("dropped_elements", 0)),
+            dropped_fragments=int(parsed.get("dropped_fragments", 0)),
+            dropped_garbled=int(parsed.get("dropped_garbled", 0)),
             table_count=int(parsed.get("table_count", 0)),
+            table_quality_failed=int(parsed.get("table_quality_failed", 0)),
             merged_continuations=int(parsed.get("merged_continuations", 0)),
-            paragraph_block_count=int(parsed.get("paragraph_block_count", 0)),
+            title_count=int(parsed.get("title_count", 0)),
+            paragraph_count=paragraph_count,
+            list_item_count=int(parsed.get("list_item_count", 0)),
+            paragraph_block_count=int(parsed.get("paragraph_block_count", paragraph_count)),
         )
 
     @staticmethod

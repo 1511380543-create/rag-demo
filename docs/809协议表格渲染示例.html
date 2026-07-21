@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>通信参数配置表</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            padding: 30px;
+            font-family: "Microsoft YaHei", SimSun, sans-serif;
+            font-size: 14px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            max-width: 900px;
+            border: 1px solid #ccc;
+        }
+        table tr td {
+            border: 1px solid #ccc;
+            padding: 12px 16px;
+            line-height: 1.6;
+        }
+        table tr:first-child td {
+            background-color: #f0f7ff;
+            font-weight: bold;
+            text-align: center;
+        }
+        table tr:nth-child(even) td {
+            background-color: #fafafa;
+        }
+    </style>
+</head>
+<body>
+<table data-logical-id="tbl-000">
+    <tr>
+        <td>参数项</td>
+        <td>标准配置值</td>
+        <td>备注说明</td>
+    </tr>
+    <tr>
+        <td>传输协议</td>
+        <td>TCP</td>
+        <td>唯一支持协议，无UDP兼容</td>
+    </tr>
+    <tr>
+        <td>默认通信端口</td>
+        <td>11009</td>
+        <td>可根据平台配置自定义修改</td>
+    </tr>
+    <tr>
+        <td>链路模式</td>
+        <td>主链路+备链路</td>
+        <td>主链路传输业务数据，备链路故障冗余</td>
+    </tr>
+    <tr>
+        <td>心跳周期</td>
+        <td>30s</td>
+        <td>超时60s未接收心跳判定链路断开</td>
+    </tr>
+    <tr>
+        <td>重连间隔</td>
+        <td>10s</td>
+        <td>链路断开后自动重试连接</td>
+    </tr>
+    <tr>
+        <td>数据编码</td>
+        <td>GB2312</td>
+        <td>中文、车辆信息统一编码格式</td>
+    </tr>
+    <tr>
+        <td>字节序</td>
+        <td>大端模式</td>
+        <td>所有数值类数据统一大端传输</td>
+    </tr>
+</table>
+</body>
+</html>
