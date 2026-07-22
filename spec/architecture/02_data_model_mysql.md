@@ -43,7 +43,7 @@ export MYSQL_DATABASE="rag_demo"
 - `full_text`: longtext，切块回退路径的文本输入（`blocks` 为空时使用）
 - `blocks`: json，有序块数组（`title` / `paragraph` / `list_item` / `table`）；切块优先输入
 - `extract_report`: json，抽取统计（清洗丢弃、表格门禁、续表等，可空）
-- `metadata`: json，文档级元数据（可空）
+- `metadata`: json，文档级元数据（可空；建议键见下）
 - `content_hash`: char(64)，`full_text` 内容哈希
 - `created_at`: datetime(3)，创建时间
 - `updated_at`: datetime(3)，更新时间
@@ -51,6 +51,15 @@ export MYSQL_DATABASE="rag_demo"
 索引约束：
 
 - 唯一索引：`uk_doc_id(doc_id)`
+
+`rag_documents.metadata` 建议键（文档级权威；切块可冗余拷贝到 chunk.metadata）：
+
+| 字段 | 说明 |
+|------|------|
+| `source` | 来源，本地 PDF 建议 `"local_pdf"` |
+| `category` | 类目，本地 PDF 建议 `"pdf"` |
+| `doc_version` | 手册/协议版本号（可选） |
+| `access_group` | 权限分组，`string[]`，缺省 `["rd"]`（`rd` / `ops` / `after_sales`） |
 
 `blocks` 元素约定（见 `08`）：
 
@@ -61,6 +70,9 @@ export MYSQL_DATABASE="rag_demo"
 | `text` | 文本 | — |
 | `html` | — | MinerU 输出的 HTML |
 | `logical_table_id` | — | 可选 |
+| `page_idx` | 可选，0-based | 可选，0-based |
+| `bbox` | 可选 `[x0,y0,x1,y1]` | 可选 |
+| `text_level` | title 建议有 | — |
 
 ### 3.2 `rag_chunks`
 
@@ -68,19 +80,27 @@ export MYSQL_DATABASE="rag_demo"
 - `doc_id`: varchar(128)，来源文档业务 ID
 - `chunk_index`: int，无符号，文档内分片序号（从 0 开始）
 - `chunk_text`: longtext，分片原文（文本为纯文本；**表格为 Markdown 管道表**）
-- `metadata`: json，分片级元数据（约定见下）
+- `metadata`: json，分片级元数据（约定见下；完整权威定义见 `09` §3.6）
 - `created_at`: datetime(3)，创建时间
 
-`rag_chunks.metadata` 约定（切块写入）：
+`rag_chunks.metadata` 约定（切块写入，摘要；细则以 `09` §3.6 为准）：
 
 | 字段 | 何时存在 | 说明 |
 |------|---------|------|
 | `doc_id` / `file_path` / `chunk_index` | 始终 | 文档与分片定位 |
 | `chunk_kind` | 始终 | `paragraph` / `table_rows` / `table_fallback` / `full_text_fallback` |
-| `block_type` | 结构路径 | `paragraph` / `table` |
-| `table_format` | 表格 chunk | 固定 `"markdown"` |
-| `logical_table_id` | 表格且有值 | 透传自 blocks |
-| `table_row_start` / `table_row_end` | `table_rows` | 本批行范围（0-based，含端点） |
+| `section_title` | 有则 | 叶子标题 |
+| `char_count` / `token_count` / `chunk_overlap` | 始终 | 长度与切分指标 |
+| `prev_chunk_index` / `next_chunk_index` | 始终 | 同文档 index 链表 |
+| `page_num` / `page_end` / `is_cross_page` / `bbox` | 有页/坐标信息时 | 溯源；跨页用起止页 |
+| `full_section_path` / `parent_section` | 结构路径 | 完整路径数组、父章节 |
+| `has_protocol_code` | 始终 | 协议/十六进制启发式 |
+| `doc_version` / `create_time` / `update_time` | 有则透传 | 版本与时间 |
+| `access_group` | 始终 | `string[]`，缺省 `["rd"]` |
+| `source` / `category` | 有则透传 | 文档 metadata；本地 PDF 建议 `category=pdf` |
+| `table_format` / `logical_table_id` / `table_row_start` / `table_row_end` / `table_cols` | 表格 chunk | 行范围 + 列数 |
+
+> 章节栈与表前 title 同步规则见 `09` §3.6（编号启发优先于 `text_level`）。
 
 索引约束：
 

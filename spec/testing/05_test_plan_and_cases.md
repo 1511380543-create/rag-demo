@@ -75,9 +75,13 @@
 | `rag_chunk_unit_merge_short_paragraphs_001` | unit | 连续短段含标题 | 6 个短 paragraph | 合并为 1 个 chunk，含全部标题与正文 | 已执行-通过 | 修复标题碎块 |
 | `rag_chunk_unit_paragraph_flush_before_table_001` | unit | 段落夹表格 | 段-表-段 | 段落与表格分块，不混 HTML | 已执行-通过 | 表前 flush |
 | `rag_chunk_unit_fallback_001` | unit | 无 blocks 回退 | `blocks=[]` + full_text | 全部 `chunk_kind=full_text_fallback` | 已执行-通过 | 回退 |
-| `rag_chunk_unit_table_header_001` | unit | 表格表头附着 | 多行表 + 小 chunk_size | 每个 chunk 为 **Markdown** 且含表头 | 待随实现更新 | 原 HTML 断言作废 |
-| `rag_chunk_unit_table_fallback_001` | unit | 无行表格降级 | 无法解析的 table | `table_fallback`；仍非 HTML 乱码 | 待随实现更新 | |
+| `rag_chunk_unit_table_header_001` | unit | 表格表头附着 | 多行表 + 小 chunk_size | 每个 chunk 为 **Markdown** 且含表头 | 已执行-通过 | |
+| `rag_chunk_unit_table_fallback_001` | unit | 无行表格降级 | 无法解析的 table | `table_fallback`；仍非 HTML 乱码 | 已执行-通过 | |
 | `rag_chunk_unit_empty_input_001` | unit | 输入皆空 | blocks 与 full_text 皆空 | `EmptyChunkInputError` | 已执行-通过 | 异常 |
+| `rag_chunk_unit_metadata_enterprise_001` | unit | 企业级 metadata | 带页码/章节 title | 含路径/页码/token/链表等 | 已执行-通过 | `09` §3.6 |
+| `rag_chunk_unit_section_path_numbering_over_flat_level_001` | unit | 扁平 text_level | 手册标题+1.+1.1 | `full_section_path` 含中间层 | 已执行-通过 | 编号优先 |
+| `rag_chunk_unit_table_section_follows_prefix_001` | unit | 表前 title | 7.1 正文后 7.2+表 | 表 `section_title=7.2` 与前缀一致 | 已执行-通过 | 表章节同步 |
+| `rag_chunk_unit_metadata_table_cols_001` | unit | 表格列数 | 标准 HTML 表 | `table_cols` 与页码正确 | 已执行-通过 | |
 
 ### 3.1 索引 / 查询 / 回归用例（已实现）
 

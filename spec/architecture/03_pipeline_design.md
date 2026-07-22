@@ -47,8 +47,8 @@
 处理：
 
 1. 从 `rag_documents` 读取 `blocks` 与 `full_text`（**不读本地 PDF**）
-2. **有 blocks**：连续**文本块**（`title` / `paragraph` / `list_item`）先拼再切；碰到 `table` 先切完已拼文本，表格 **HTML→Markdown 后按行组切**（每块重复表头）。**无 blocks**：整篇 `full_text` + `SentenceSplitter`
-3. 覆盖写入 `rag_chunks`
+2. **有 blocks**：连续**文本块**（`title` / `paragraph` / `list_item`）先拼再切；碰到 `table` 先切完已拼文本，表格 **HTML→Markdown 后按行组切**（每块重复表头）。**无 blocks**：整篇 `full_text` 递归切分
+3. 覆盖写入 `rag_chunks`；`metadata` 按 `09` §3.6 enrichment（页码、章节路径、长度指标、文档属性等）
 
 > 切块细节见 `09_document_chunking.md`。
 

@@ -48,14 +48,18 @@ MinerU 满足本项目企业侧抽取诉求：
 
 | MinerU 语义（按官方 content 类型对齐） | `blocks[].type` | 写入字段 |
 |----------------------------------------|-----------------|----------|
-| 标题（title / heading） | `title` | `text` |
-| 正文（text / paragraph） | `paragraph` | `text` |
-| 列表项（list） | `list_item` | `text` |
-| 表格（table） | `table` | `html`（MinerU 表格 HTML） |
+| 标题（title / heading） | `title` | `text` + `page_idx` + 可选 `bbox` / `text_level` |
+| 正文（text / paragraph） | `paragraph` | `text` + `page_idx` + 可选 `bbox` |
+| 列表项（list） | `list_item` | `text` + `page_idx` + 可选 `bbox` |
+| 表格（table） | `table` | `html` + `page_idx` + 可选 `bbox` / `logical_table_id` |
 | 其他（公式、图片说明等） | 本阶段：**丢弃**（计入 report），不进 blocks |
 
 - 每个 block 必有递增 `order`（从 0）
 - `table` 可带 `logical_table_id`（如 `tbl-000`）
+- **溯源字段必须尽量保留**（切块合规页码依赖此，见 `09` §3.6）：
+  - `page_idx`：MinerU 页索引，**0-based**；有则写入 block
+  - `bbox`：可选，页面坐标 `[x0,y0,x1,y1]`
+  - `text_level`：标题层级（MinerU 原样写入）；切块构造 `full_section_path` 时**编号启发优先于本字段**（见 `09` §3.6）
 - `extract_version`：固定 `mineru-v1`
 
 ### 4.2 `blocks` JSON 形状
@@ -67,11 +71,15 @@ MinerU 满足本项目企业侧抽取诉求：
 | `text` | 纯文本 | — |
 | `html` | — | 表格 HTML |
 | `logical_table_id` | — | 可选 |
+| `page_idx` | 建议必有（0-based） | 建议必有 |
+| `bbox` | 可选 | 可选 |
+| `text_level` | title 建议有 | — |
 
 ### 4.3 与切块的约定
 
 - 切块层把 `title`、`paragraph`、`list_item` 都当作可拼接的文本块
 - `table` 的 `html` 仅作切块输入；**写入 `rag_chunks` 前必须转为 Markdown**（见 `09`）
+- `page_idx` / `bbox` / `text_level` 供切块写入 `page_num`、`full_section_path` 等（切块**不**再读 PDF；路径层级以 `09` 章节栈规则为准）
 - `full_text` 拼接时：文本用原文；表格可用 HTML 或简化占位——**检索主路径以 chunks 为准**，不以 full_text 内嵌 HTML 表作为向量化目标
 
 ## 5. 企业级清洗链（权威规则）

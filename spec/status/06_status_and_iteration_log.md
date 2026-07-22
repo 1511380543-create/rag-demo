@@ -6,31 +6,30 @@
 ## 1. 当前状态
 
 - 核心接口已实现：`/rag/extract`、`/rag/chunks`（`doc_ids`）、`/rag/index/build`、`/rag/query`、`/rag/health` 及监控/测评接口
-- **抽取（spec v0.7，代码待落地）**：引擎改为 MinerU；企业级清洗 + 表格质量门禁；`blocks` 保留 `title`/`paragraph`/`list_item`/`table`；见 `08`
-- **切块（spec 已更新；表格 MD 代码待随实现）**：连续文本块先拼再切；表格 chunk 为 Markdown 行组；见 `09`
-- **当前代码**：切块仍可能输出 HTML 表；与最新 `09` 不一致，实现时一并改
+- **抽取**：MinerU + 企业级清洗 + 表格门禁；`blocks` 含 `title`/`paragraph`/`list_item`/`table` 及 `page_idx`/`bbox`/`text_level`（见 `08`）
+- **切块正文**：长度约束 + 递归切分 + 标题粘性 + 表格 Markdown（见 `09`）
+- **切块 metadata**：`09` §3.6 已落地（编号优先章节栈、表前 title 同步；本地 PDF `category=pdf`）
 - 自动化测试：须在 conda `rag-demo` 执行；仅 mock Embedding；测试库 `rag_demo_test`（见 `05`）
-- 业务库手工 curl 验收见操作手册（MinerU 落地后按 `08` §10）
+- 业务库手工 curl 验收见操作手册
 
 ## 2. 目标状态（spec 目标 v0.7）
 
 - 目标接口：`/rag/extract`、`/rag/chunks`、`/rag/index/build`、`/rag/query`、`/rag/health`
 - 目标流程：
   - 阶段一：MinerU 解析 → 企业级清洗 → 表格门禁 → `rag_documents`（`extract_version=mineru-v1`）
-  - 阶段二：文本块先拼再切；表格 HTML→Markdown 行组 → `rag_chunks`
+  - 阶段二：文本块先拼再切；表格 HTML→Markdown 行组 → `rag_chunks`（含企业级 metadata）
   - 阶段三：从 `rag_chunks` 构建向量索引
 - 目标存储：
-  - `rag_documents`：blocks（含 title/list_item）+ full_text，表格为可读 HTML
-  - `rag_chunks`：文本纯文本；表格为 Markdown
+  - `rag_documents`：blocks（含 title/list_item + 溯源字段）+ full_text，表格为可读 HTML
+  - `rag_chunks`：文本纯文本；表格为 Markdown；metadata 见 `09` §3.6
   - 原始 PDF 不入 MySQL
-- **当前代码仍为 Unstructured 抽取路径**，与 v0.7 不一致
 
 ## 3. 已知差距
 
-- **v0.7 抽取代码尚未实现**（spec 已切换 MinerU）
 - 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
-- 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关阈值过滤未实现）
-- MinerU 落地后须全量重抽 + 重切 + 重建索引，并重跑评测更新 baseline
+- 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关结果过滤未实现）
+- 跨 block 合并时 `bbox` 常为 `null`（单块坐标策略）；高亮溯源能力有限
+- 旧文档若未重切，章节路径可能仍为扁平 2 层；改完代码后需再调 `/rag/chunks`
 - pytest 默认仅 mock Embedding；业务库手工联调见操作手册
 
 ## 4. 监控与测评（已实现）
@@ -62,6 +61,17 @@
 
 ## 6. 迭代记录
 
+- 2026-07-22（chunk 章节栈 P0 修复）：
+  - 标题编号启发优先于扁平 `text_level`；无编号标题作文档根
+  - 表前 title：先 flush 再入栈，`section_title` 与 `chunk_text` 前缀一致
+  - 本地 PDF `category` 统一为 `pdf`；spec `09`/`02`/`08`/`06`/`05` 与实现对齐整理
+- 2026-07-22（chunk metadata 落地）：
+  - 抽取：`blocks` 落盘 `page_idx` / `bbox` / `text_level`（`08` 映射表已对齐）
+  - 切块：按 `09` §3.6 写入企业级 metadata（页码、章节路径、长度、链表、文档属性、表列数等）
+- 2026-07-21（chunk metadata 企业级约定）：
+  - `09` §3.6：对齐推荐命名；保留 `chunk_kind`；补齐 `page_end`/`char_count`/`create_time`/index 链表/`table_cols`
+  - `02` / `08`：blocks 溯源字段；文档级版本/权限
+  - （历史）当时代码未 enrichment；现已落地，见上条
 - 2026-07-20（抽取推倒重做 spec v0.7）：
   - 引擎：Unstructured → MinerU（本地）
   - 清洗：半截重复 / 垃圾碎片 / 乱码行 / NFKC；表格质量门禁，乱码表禁止入库
