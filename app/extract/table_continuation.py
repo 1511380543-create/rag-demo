@@ -32,6 +32,8 @@ def merge_table_continuations(blocks: list[ContentBlock]) -> tuple[list[ContentB
 
         combined_html = current.html
         logical_id = current.logical_table_id or f"tbl-{table_seq:03d}"
+        page_idx = current.page_idx
+        bbox = list(current.bbox) if current.bbox is not None else None
         table_seq += 1
         index += 1
 
@@ -39,7 +41,17 @@ def merge_table_continuations(blocks: list[ContentBlock]) -> tuple[list[ContentB
             next_html = blocks[index].html or ""
             if not _should_merge(combined_html, next_html):
                 break
+            next_block = blocks[index]
             combined_html = _merge_table_html(combined_html, next_html)
+            # 跨页合并：保留起始页，坐标不再单点有效
+            if (
+                page_idx is not None
+                and next_block.page_idx is not None
+                and next_block.page_idx != page_idx
+            ):
+                bbox = None
+            elif bbox is not None and next_block.bbox != bbox:
+                bbox = None
             merged_count += 1
             index += 1
 
@@ -49,6 +61,8 @@ def merge_table_continuations(blocks: list[ContentBlock]) -> tuple[list[ContentB
                 order=current.order,
                 html=combined_html,
                 logical_table_id=logical_id,
+                page_idx=page_idx,
+                bbox=bbox,
             )
         )
 

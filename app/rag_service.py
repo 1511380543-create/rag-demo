@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 from threading import RLock
 from time import perf_counter
+from datetime import datetime
 from typing import Any
 
 from llama_index.core import Settings as LlamaSettings, VectorStoreIndex
@@ -38,7 +39,6 @@ from app.models import (
     RetrievedContext,
 )
 from app.monitoring_store import MonitoringStore, QueryLogItem
-from app.extract.models import ContentBlock
 from app.mysql_chunk_store import ChunkWriteItem, MySQLChunkStore
 from app.mysql_document_store import MySQLDocumentStore
 from app.qwen_embedding import QwenEmbedding
@@ -166,6 +166,8 @@ class RagService:
                         blocks=row.blocks,
                         full_text=row.full_text,
                         metadata=row.metadata,
+                        created_at=row.created_at,
+                        updated_at=row.updated_at,
                     )
                 except EmptyChunkInputError as exc:
                     raise RuntimeError(f"文档 {doc_id} 切块失败: {exc}") from exc
@@ -534,6 +536,8 @@ class RagService:
         blocks: list[ContentBlock],
         full_text: str,
         metadata: dict[str, Any] | None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
     ) -> list[ChunkWriteItem]:
         """调用切块管线，将结果转为写库项。"""
         base_metadata = dict(metadata or {})
@@ -544,6 +548,8 @@ class RagService:
             blocks=blocks,
             full_text=full_text,
             base_metadata=base_metadata,
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
         chunks: list[ChunkWriteItem] = []

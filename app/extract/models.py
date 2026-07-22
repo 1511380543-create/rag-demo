@@ -13,6 +13,12 @@ class ContentBlock:
     text: str | None = None
     html: str | None = None
     logical_table_id: str | None = None
+    # 溯源：MinerU 页索引 0-based；切块据此写 page_num（1-based）
+    page_idx: int | None = None
+    # 可选页面坐标 [x0, y0, x1, y1]
+    bbox: list[float] | None = None
+    # 标题层级（MinerU text_level）；供切块构造 full_section_path
+    text_level: int | None = None
 
 
 @dataclass

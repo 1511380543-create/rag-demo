@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.chunk.models import ChunkPiece
 from app.chunk.recursive_splitter import recursive_split_text
 
@@ -17,6 +19,11 @@ def split_section_text(
     base_metadata: dict,
     min_chunk_chars: int = DEFAULT_MIN_CHUNK_CHARS,
     section_title: str | None = None,
+    parent_section: str | None = None,
+    full_section_path: list[str] | None = None,
+    page_num: int | None = None,
+    page_end: int | None = None,
+    bbox: list[float] | None = None,
 ) -> list[ChunkPiece]:
     """
     按章节切分：title_header 必须粘在第一个文本 chunk 开头，不与正文拆到两块。
@@ -27,6 +34,14 @@ def split_section_text(
     header = (title_header or "").strip()
     body_text = (body or "").strip()
     meta_title = (section_title or "").strip() or (header.split("\n\n")[-1] if header else None)
+    section_kwargs: dict[str, Any] = dict(
+        section_title=meta_title,
+        parent_section=parent_section,
+        full_section_path=full_section_path,
+        page_num=page_num,
+        page_end=page_end,
+        bbox=bbox,
+    )
 
     if not header and not body_text:
         return []
@@ -35,8 +50,9 @@ def split_section_text(
         return _to_paragraph_pieces(
             [header],
             base_metadata=base_metadata,
-            section_title=meta_title,
             min_chunk_chars=min_chunk_chars,
+            chunk_overlap=0,
+            **section_kwargs,
         )
 
     if not header:
@@ -48,8 +64,9 @@ def split_section_text(
         return _to_paragraph_pieces(
             parts,
             base_metadata=base_metadata,
-            section_title=meta_title,
             min_chunk_chars=min_chunk_chars,
+            chunk_overlap=chunk_overlap if len(parts) > 1 else 0,
+            **section_kwargs,
         )
 
     # 为标题预留空间，尽量保证 header + 首段正文 ≤ chunk_size
@@ -64,16 +81,18 @@ def split_section_text(
         return _to_paragraph_pieces(
             [header],
             base_metadata=base_metadata,
-            section_title=meta_title,
             min_chunk_chars=min_chunk_chars,
+            chunk_overlap=0,
+            **section_kwargs,
         )
 
     glued = [f"{header}\n\n{body_parts[0]}"] + body_parts[1:]
     return _to_paragraph_pieces(
         glued,
         base_metadata=base_metadata,
-        section_title=meta_title,
         min_chunk_chars=min_chunk_chars,
+        chunk_overlap=chunk_overlap if len(glued) > 1 else 0,
+        **section_kwargs,
     )
 
 
@@ -117,12 +136,17 @@ def split_full_text_fallback(
         chunk_overlap=chunk_overlap,
     )
     pieces: list[ChunkPiece] = []
+    overlap = chunk_overlap if len(parts) > 1 else 0
     for part in parts:
         chunk_text = part.strip()
         if not chunk_text:
             continue
         metadata = dict(base_metadata)
         metadata["chunk_kind"] = "full_text_fallback"
+        metadata["chunk_overlap"] = overlap
+        metadata["full_section_path"] = []
+        metadata["section_title"] = None
+        metadata["parent_section"] = None
         pieces.append(ChunkPiece(chunk_text=chunk_text, metadata=metadata))
 
     pieces = merge_short_text_pieces(pieces, min_chunk_chars=min_chunk_chars)
@@ -135,19 +159,30 @@ def _to_paragraph_pieces(
     parts: list[str],
     *,
     base_metadata: dict,
-    section_title: str | None,
     min_chunk_chars: int,
+    chunk_overlap: int = 0,
+    section_title: str | None = None,
+    parent_section: str | None = None,
+    full_section_path: list[str] | None = None,
+    page_num: int | None = None,
+    page_end: int | None = None,
+    bbox: list[float] | None = None,
 ) -> list[ChunkPiece]:
     pieces: list[ChunkPiece] = []
     for part in parts:
         chunk_text = (part or "").strip()
         if not chunk_text:
             continue
-        metadata = dict(base_metadata)
-        metadata["block_type"] = "paragraph"
+        metadata: dict[str, Any] = dict(base_metadata)
         metadata["chunk_kind"] = "paragraph"
+        metadata["chunk_overlap"] = chunk_overlap
         if section_title:
             metadata["section_title"] = section_title
+        metadata["parent_section"] = parent_section
+        metadata["full_section_path"] = list(full_section_path or [])
+        metadata["page_num"] = page_num
+        metadata["page_end"] = page_end if page_end is not None else page_num
+        metadata["bbox"] = bbox
         pieces.append(ChunkPiece(chunk_text=chunk_text, metadata=metadata))
 
     pieces = merge_short_text_pieces(pieces, min_chunk_chars=min_chunk_chars)

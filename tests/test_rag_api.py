@@ -38,12 +38,12 @@ if str(PROJECT_ROOT) not in sys.path:
 DOC_OBD = {
     "doc_id": "pdf-obd-809",
     "file_path": "docs/OBD设备JT_T 809协议虚拟技术手册.pdf",
-    "metadata": {"source": "local_pdf", "category": "policy"},
+    "metadata": {"source": "local_pdf", "category": "pdf"},
 }
 DOC_EMISSION = {
     "doc_id": "pdf-emission-std",
     "file_path": "docs/国三排放标准柴油机动车报废管理实施标准（虚拟政策文档）.pdf",
-    "metadata": {"source": "local_pdf", "category": "policy"},
+    "metadata": {"source": "local_pdf", "category": "pdf"},
 }
 
 

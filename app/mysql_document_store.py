@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import pymysql
@@ -22,6 +23,8 @@ class DocumentRow:
     extract_report: ExtractReport | None
     metadata: dict[str, Any] | None
     content_hash: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 def document_row_to_extracted(row: DocumentRow) -> ExtractedDocument:
@@ -101,7 +104,9 @@ class MySQLDocumentStore:
                 blocks,
                 extract_report,
                 metadata,
-                content_hash
+                content_hash,
+                created_at,
+                updated_at
             FROM rag_documents
             WHERE doc_id IN ({placeholders})
             ORDER BY doc_id ASC
@@ -145,6 +150,12 @@ class MySQLDocumentStore:
                 item["html"] = block.html
             if block.logical_table_id is not None:
                 item["logical_table_id"] = block.logical_table_id
+            if block.page_idx is not None:
+                item["page_idx"] = block.page_idx
+            if block.bbox is not None:
+                item["bbox"] = block.bbox
+            if block.text_level is not None:
+                item["text_level"] = block.text_level
             payload.append(item)
         return json.dumps(payload, ensure_ascii=False)
 
@@ -170,6 +181,9 @@ class MySQLDocumentStore:
                     text=item.get("text"),
                     html=item.get("html"),
                     logical_table_id=item.get("logical_table_id"),
+                    page_idx=_parse_optional_int(item.get("page_idx")),
+                    bbox=_parse_optional_bbox(item.get("bbox")),
+                    text_level=_parse_optional_int(item.get("text_level")),
                 )
             )
         return sorted(blocks, key=lambda block: block.order)
@@ -227,4 +241,24 @@ class MySQLDocumentStore:
             extract_report=self._from_report_json(row["extract_report"]),
             metadata=self._from_json(row["metadata"]),
             content_hash=str(row["content_hash"]),
+            created_at=row.get("created_at") if isinstance(row.get("created_at"), datetime) else None,
+            updated_at=row.get("updated_at") if isinstance(row.get("updated_at"), datetime) else None,
         )
+
+
+def _parse_optional_int(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_optional_bbox(value: Any) -> list[float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        return [float(v) for v in value]
+    except (TypeError, ValueError):
+        return None

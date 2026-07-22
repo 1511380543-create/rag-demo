@@ -60,6 +60,8 @@ class PdfExtractPipeline:
         blocks: list[ContentBlock] = []
         table_seq = 0
         for order, node in enumerate(nodes):
+            page_idx = _meta_page_idx(node)
+            bbox = _meta_bbox(node)
             if is_table_node(node):
                 logical_id = f"tbl-{table_seq:03d}"
                 table_seq += 1
@@ -70,17 +72,25 @@ class PdfExtractPipeline:
                         order=order,
                         html=wrap_table_html(html, logical_id),
                         logical_table_id=logical_id,
+                        page_idx=page_idx,
+                        bbox=bbox,
                     )
                 )
                 continue
             text = (node.text or "").strip()
             if not text:
                 continue
+            text_level = None
+            if node.node_type == "title":
+                text_level = _meta_text_level(node)
             blocks.append(
                 ContentBlock(
                     block_type=node.node_type,
                     order=order,
                     text=text,
+                    page_idx=page_idx,
+                    bbox=bbox,
+                    text_level=text_level,
                 )
             )
         # 重新编号，保证 order 连续
@@ -118,3 +128,34 @@ class PdfExtractPipeline:
     @staticmethod
     def _compute_hash(full_text: str) -> str:
         return hashlib.sha256(full_text.encode("utf-8")).hexdigest()
+
+
+def _meta_page_idx(node: ExtractNode) -> int | None:
+    value = node.metadata.get("page_idx")
+    try:
+        if value is None:
+            return None
+        page_idx = int(value)
+    except (TypeError, ValueError):
+        return None
+    return page_idx if page_idx >= 0 else None
+
+
+def _meta_bbox(node: ExtractNode) -> list[float] | None:
+    value = node.metadata.get("bbox")
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        return [float(v) for v in value]
+    except (TypeError, ValueError):
+        return None
+
+
+def _meta_text_level(node: ExtractNode) -> int | None:
+    value = node.metadata.get("text_level")
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None

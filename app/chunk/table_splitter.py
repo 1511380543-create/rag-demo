@@ -188,6 +188,12 @@ def split_table_html(
     base_metadata: dict[str, Any],
     logical_table_id: str | None = None,
     title_prefix: str | None = None,
+    section_title: str | None = None,
+    parent_section: str | None = None,
+    full_section_path: list[str] | None = None,
+    page_num: int | None = None,
+    page_end: int | None = None,
+    bbox: list[float] | None = None,
 ) -> list[ChunkPiece]:
     """
     HTML → Markdown 后按数据行组切分；每个 chunk 重复表头。
@@ -200,14 +206,24 @@ def split_table_html(
 
     caption, headers, data_rows, parse_ok = _parse_table_structure(cleaned)
     prefix = (title_prefix or "").strip()
+    table_cols = len(headers) if headers else None
 
     def _meta(kind: str, **extra: Any) -> dict[str, Any]:
         metadata = dict(base_metadata)
-        metadata["block_type"] = "table"
         metadata["chunk_kind"] = kind
         metadata["table_format"] = "markdown"
+        metadata["chunk_overlap"] = 0
         if logical_table_id:
             metadata["logical_table_id"] = logical_table_id
+        if table_cols is not None:
+            metadata["table_cols"] = table_cols
+        if section_title:
+            metadata["section_title"] = section_title
+        metadata["parent_section"] = parent_section
+        metadata["full_section_path"] = list(full_section_path or [])
+        metadata["page_num"] = page_num
+        metadata["page_end"] = page_end if page_end is not None else page_num
+        metadata["bbox"] = bbox
         metadata.update(extra)
         return metadata
 

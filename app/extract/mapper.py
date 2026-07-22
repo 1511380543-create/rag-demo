@@ -49,7 +49,8 @@ def map_content_list_to_nodes(items: list[dict[str, Any]]) -> tuple[list[Extract
                     node_type="table",
                     metadata={
                         "table_html": html,
-                        "page_idx": item.get("page_idx"),
+                        "page_idx": _as_page_idx(item.get("page_idx")),
+                        "bbox": _as_bbox(item.get("bbox")),
                         "table_caption": item.get("table_caption"),
                     },
                     node_id=f"table-{index}",
@@ -69,11 +70,18 @@ def map_content_list_to_nodes(items: list[dict[str, Any]]) -> tuple[list[Extract
                 discarded += 1
                 continue
             node_type = _resolve_text_type(item_type, item)
+            meta: dict[str, Any] = {
+                "page_idx": _as_page_idx(item.get("page_idx")),
+                "bbox": _as_bbox(item.get("bbox")),
+            }
+            text_level = _as_text_level(item.get("text_level"))
+            if text_level is not None:
+                meta["text_level"] = text_level
             nodes.append(
                 ExtractNode(
                     text=text,
                     node_type=node_type,
-                    metadata={"page_idx": item.get("page_idx"), "text_level": item.get("text_level")},
+                    metadata=meta,
                     node_id=f"text-{index}",
                 )
             )
@@ -112,7 +120,10 @@ def _map_list_item(item: dict[str, Any], index: int) -> tuple[list[ExtractNode],
                 ExtractNode(
                     text=text,
                     node_type="list_item",
-                    metadata={"page_idx": item.get("page_idx")},
+                    metadata={
+                        "page_idx": _as_page_idx(item.get("page_idx")),
+                        "bbox": _as_bbox(item.get("bbox")),
+                    },
                     node_id=f"list-{index}-{offset}",
                 )
             )
@@ -126,13 +137,46 @@ def _map_list_item(item: dict[str, Any], index: int) -> tuple[list[ExtractNode],
                 ExtractNode(
                     text=text,
                     node_type="list_item",
-                    metadata={"page_idx": item.get("page_idx")},
+                    metadata={
+                        "page_idx": _as_page_idx(item.get("page_idx")),
+                        "bbox": _as_bbox(item.get("bbox")),
+                    },
                     node_id=f"list-{index}",
                 )
             ],
             0,
         )
     return [], 1
+
+
+def _as_page_idx(value: Any) -> int | None:
+    """规范化 MinerU page_idx（0-based）。"""
+    try:
+        if value is None:
+            return None
+        page_idx = int(value)
+    except (TypeError, ValueError):
+        return None
+    return page_idx if page_idx >= 0 else None
+
+
+def _as_bbox(value: Any) -> list[float] | None:
+    """规范化 bbox 为长度为 4 的 float 列表。"""
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        return [float(v) for v in value]
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_text_level(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _stringify_list_entry(entry: Any) -> str:
