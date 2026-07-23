@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 20
     min_chunk_chars: int = 20
+    # 同标题章节软上限：总长不超过时整节一块（可超过 chunk_size）
+    section_soft_max: int = 1000
     index_name: str = "local_rag_index"
     mysql_host: str = Field(default="127.0.0.1", alias="MYSQL_HOST")
     mysql_port: int = Field(default=3306, alias="MYSQL_PORT")

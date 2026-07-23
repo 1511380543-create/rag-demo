@@ -251,6 +251,90 @@ def test_rag_chunk_unit_recursive_helper_001() -> None:
     assert all(len(p) <= 20 or "。" in p for p in parts)
 
 
+def test_rag_chunk_unit_section_soft_max_keep_001() -> None:
+    """同标题章节总长超过 chunk_size 但 ≤ soft_max 时整节一块。"""
+    pipeline = ChunkPipeline(chunk_size=80, chunk_overlap=0, section_soft_max=400)
+    body = (
+        "车辆必须规范安装国家认证的重型柴油车远程排放管理车载终端(OBD终端)，"
+        "终端设备型号、技术参数符合GB17691-2018国家标准，设备完好无损、无拆卸、无改装、无屏蔽故障，"
+        "可24小时实时采集，车辆行驶、排放、工况等核心数据。"
+    )
+    assert 80 < len("2.1 设备配置要求\n\n" + body) <= 400
+    pieces = pipeline.chunk_document(
+        blocks=[
+            ContentBlock(block_type="title", order=0, text="2.1 设备配置要求"),
+            ContentBlock(block_type="paragraph", order=1, text=body),
+        ],
+        full_text="",
+        base_metadata={"doc_id": "doc-soft-keep"},
+    )
+    assert len(pieces) == 1
+    assert pieces[0].chunk_text.startswith("2.1 设备配置要求")
+    assert "可24小时实时采集" in pieces[0].chunk_text
+    assert len(pieces[0].chunk_text) > 80
+
+
+def test_rag_chunk_unit_section_soft_max_split_prefix_001() -> None:
+    """同节超过 soft_max 必须切开，且每一块都带标题前缀。"""
+    pipeline = ChunkPipeline(chunk_size=80, chunk_overlap=0, section_soft_max=120)
+    body = (
+        "第一段说明设备配置与终端型号要求，内容需要足够长以便触发软上限切开。"
+        "第二段继续补充数据传输与工况采集细节，仍然属于同一小节正文。"
+        "第三段给出合规核验与日常运维要求，确保总体长度明显高于软上限。"
+        "第四段收尾强调不得拆卸改装屏蔽故障，并要求全天候稳定采集。"
+    )
+    pieces = pipeline.chunk_document(
+        blocks=[
+            ContentBlock(block_type="title", order=0, text="2.1 设备配置要求"),
+            ContentBlock(block_type="paragraph", order=1, text=body),
+        ],
+        full_text="",
+        base_metadata={"doc_id": "doc-soft-split"},
+    )
+    assert len(pieces) >= 2
+    for piece in pieces:
+        assert piece.chunk_text.startswith("2.1 设备配置要求")
+        assert piece.metadata.get("section_title") == "2.1 设备配置要求"
+
+
+def test_rag_chunk_unit_hard_cut_soft_boundary_001() -> None:
+    """无句号的超长段：硬切应优先落在逗号等软边界，而不是汉字中间。"""
+    from app.chunk.recursive_splitter import _split_by_chars
+
+    # 模拟「可24小时实时采集，车辆行驶、排放、工况等核心数据。」类长句无句号
+    text = (
+        "车辆必须规范安装国家认证的重型柴油车远程排放管理车载终端(OBD终端)，"
+        "终端设备型号、技术参数符合GB17691-2018国家标准，"
+        "设备完好无损、无拆卸、无改装、无屏蔽故障，可24小时实时采集，"
+        "车辆行驶、排放、工况等核心数据。"
+    )
+    parts = _split_by_chars(text, chunk_size=80, chunk_overlap=0)
+    assert len(parts) >= 2
+    # 不应在「采集」与「车辆」之间无标点硬切出「…采集」+「车辆…」这种断句
+    joined_boundaries = "||".join(parts)
+    assert "采集||车辆" not in joined_boundaries
+    # 每块（除可能因短尾合并略超）应尽量以软边界或完整收尾
+    for part in parts[:-1]:
+        assert part[-1] in "，、。！？；.!?;：:\n" or len(part) <= 80
+
+
+def test_rag_chunk_unit_hard_cut_no_orphan_tail_001() -> None:
+    """硬切后不得留下个位数汉字的无信息尾块（如「罚」单独成块）。"""
+    from app.chunk.recursive_splitter import _split_by_chars
+
+    # 构造硬切窗口刚好落在「处|罚」之间
+    head = "A" * 60
+    text = head + "违规者将依法依规从严处罚，并纳入行业失信黑名单。"
+    cut_at = text.index("处") + 1  # 「处」之后、「罚」之前
+    parts = _split_by_chars(text, chunk_size=cut_at, chunk_overlap=0)
+    assert len(parts) >= 1
+    assert not any(len(p) < 20 and p != parts[0] for p in parts)
+    assert not any(p.startswith("罚") and len(p) < 20 for p in parts)
+    # 「处」「罚」不应分属相邻两块首尾
+    for index in range(len(parts) - 1):
+        assert not (parts[index].endswith("处") and parts[index + 1].startswith("罚"))
+
+
 def test_rag_chunk_unit_metadata_enterprise_001() -> None:
     """企业级 metadata：页码、章节路径、长度指标、链表、无 block_type。"""
     pipeline = ChunkPipeline(chunk_size=500, chunk_overlap=20)

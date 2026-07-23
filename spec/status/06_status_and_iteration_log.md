@@ -61,6 +61,9 @@
 
 ## 6. 迭代记录
 
+- 2026-07-23（章节软上限）：
+  - 有标题同节总长 ≤ `section_soft_max`（默认 1000）整节一块，允许超过 `chunk_size`
+  - 超过软上限再切时，**每一块** `chunk_text` 均带标题前缀，避免续块检索偏弱
 - 2026-07-22（chunk 章节栈 P0 修复）：
   - 标题编号启发优先于扁平 `text_level`；无编号标题作文档根
   - 表前 title：先 flush 再入栈，`section_title` 与 `chunk_text` 前缀一致

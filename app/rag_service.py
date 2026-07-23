@@ -87,6 +87,7 @@ class RagService:
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
             min_chunk_chars=settings.min_chunk_chars,
+            section_soft_max=settings.section_soft_max,
         )
         self._document_store = MySQLDocumentStore(settings=settings)
         self._chunk_store = MySQLChunkStore(settings=settings)

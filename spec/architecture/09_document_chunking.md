@@ -47,9 +47,10 @@
 
 | 规则 | 要求 |
 |------|------|
-| 上限 | 正常文本/表格 chunk：`len(chunk_text) ≤ chunk_size` |
-| 整句/整行例外 | **单个**句子或**单行**表格数据本身超过 `chunk_size` 时，允许整句/整行单独成块 |
-| 标题粘性 | `title`（可连续多个）与紧随正文/列表必须落在**同一文本 chunk 的开头**，禁止「上块只留标题、下块从正文起」 |
+| 硬上限 | 表格行组、无标题兜底文本：优先 `len(chunk_text) ≤ chunk_size` |
+| 章节软上限 | 有 `title` 的同节（标题+正文）：总长 ≤ `section_soft_max`（默认 1000）时**整节一块**，允许超过 `chunk_size` |
+| 整句/整行例外 | **单个**句子或**单行**表格数据本身超过上限时，允许整句/整行单独成块 |
+| 标题粘性 | `title`（可连续多个）与紧随正文/列表必须落在**同一文本 chunk 的开头**；同节被切开时，**每一块** `chunk_text` 都必须带标题前缀 |
 | 表前标题 | 表格前的连续 `title` **一律**挂到该表首个 chunk 前缀（不限长度），表与标题不得拆成「纯标题文本块 + 无标题表」 |
 | 下限 | 长度 &lt; `min_chunk_chars`（默认 20）不得单独入库：优先并入前一块文本 |
 | 去重 | 相邻文本 chunk 若存在明显前后缀重叠，去掉下一块开头的重复前缀 |
@@ -60,11 +61,13 @@
 
 ```text
 若有 title_header：
-  → 先按 (chunk_size - header预留) 递归切 body
-  → 将 title_header 粘到第一个 body 分片开头
+  → 整节长度 ≤ section_soft_max：整节一块（可超过 chunk_size）
+  → 否则：按 (section_soft_max - header预留) 递归切 body
+  → 将 title_header 粘到**每一个** body 分片开头
 否则：
-  → 对 body 直接递归切分
-递归层级：空行（\n\n）→ 句子（。！？；.!?;）→ 字符硬切（overlap 默认 20）
+  → 对 body 直接按 chunk_size 递归切分
+递归层级：空行（\n\n）→ 句子（。！？；.!?;）→ 软标点（，、；：换行）→ 字符硬切（overlap 默认 20）
+硬切规则：在窗口内优先回看软边界落刀；找不到再按字符切；长度 &lt; 20 的尾块并入上一块（可轻微超限）
 ```
 
 `full_text` 回退路径无结构化 title，仅做递归切分。
@@ -183,9 +186,10 @@
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `chunk_size` | 500 | 文本与表格共用上限 |
+| `chunk_size` | 500 | 无标题文本与表格行组的装箱上限 |
 | `chunk_overlap` | 20 | **仅**字符硬切层使用；装箱层默认无 overlap |
 | `min_chunk_chars` | 20 | 过短合并阈值 |
+| `section_soft_max` | 1000 | 有标题的同节软上限；≤ 此值整节一块（可超过 `chunk_size`） |
 
 ## 5. 非目标（本阶段）
 
@@ -203,7 +207,7 @@
 3. 拆表每块带表头（含无 thead）  
 4. 标题与紧随正文不拆块；表前 title 出现在对应表格 chunk 前缀中，且 `section_title` / `full_section_path` 与该前缀一致  
 5. 无 &lt; `min_chunk_chars` 的孤立无信息文本块  
-6. 除整句/整行例外外，chunk 长度 ≤ `chunk_size`  
+6. 有标题同节：总长 ≤ `section_soft_max` 时整节一块（可超过 `chunk_size`）；超过后切开时**每一块**均带标题前缀；表格/无标题路径除整句整行例外外 ≤ `chunk_size`  
 7. 相邻文本块无明显大段前后缀重复  
 8. 同 `doc_id` 覆盖写；`/rag/chunks` 契约不变  
 9. metadata 必有 `chunk_kind` / `char_count` / `token_count` / `prev_chunk_index` / `next_chunk_index` / `has_protocol_code` / `access_group`  

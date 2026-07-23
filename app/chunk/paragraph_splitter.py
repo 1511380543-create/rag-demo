@@ -1,4 +1,4 @@
-"""文本切分：递归切分 + 章节标题粘性 + 过短合并 + 相邻重叠去重。"""
+"""文本切分：递归切分 + 章节软上限整节保留 + 标题粘性 + 过短合并。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from app.chunk.models import ChunkPiece
 from app.chunk.recursive_splitter import recursive_split_text
 
 DEFAULT_MIN_CHUNK_CHARS = 20
+# 同标题章节软上限默认：允许整节超过 chunk_size，避免检索信号被拆散
+DEFAULT_SECTION_SOFT_MAX = 1000
 
 
 def split_section_text(
@@ -18,6 +20,7 @@ def split_section_text(
     chunk_overlap: int = 0,
     base_metadata: dict,
     min_chunk_chars: int = DEFAULT_MIN_CHUNK_CHARS,
+    section_soft_max: int | None = None,
     section_title: str | None = None,
     parent_section: str | None = None,
     full_section_path: list[str] | None = None,
@@ -26,14 +29,17 @@ def split_section_text(
     bbox: list[float] | None = None,
 ) -> list[ChunkPiece]:
     """
-    按章节切分：title_header 必须粘在第一个文本 chunk 开头，不与正文拆到两块。
+    按章节切分（语义完整优先）。
 
-    - 仅有标题无正文：整段标题成块（再走过短合并）
-    - 有正文：先按「为标题预留额度」切正文，再把标题粘到首块
+    - 有 title_header：
+      - 整节（标题+正文）长度 ≤ section_soft_max → 整节一块（可超过 chunk_size）
+      - 超过 soft_max → 再切；**每一块** chunk_text 都以标题为前缀
+    - 无标题：仍按 chunk_size 递归切（兜底路径）
     """
     header = (title_header or "").strip()
     body_text = (body or "").strip()
     meta_title = (section_title or "").strip() or (header.split("\n\n")[-1] if header else None)
+    soft_max = _resolve_section_soft_max(chunk_size=chunk_size, section_soft_max=section_soft_max)
     section_kwargs: dict[str, Any] = dict(
         section_title=meta_title,
         parent_section=parent_section,
@@ -69,9 +75,20 @@ def split_section_text(
             **section_kwargs,
         )
 
-    # 为标题预留空间，尽量保证 header + 首段正文 ≤ chunk_size
+    section_text = f"{header}\n\n{body_text}"
+    # 同节未超软上限：整节保留，允许超过 chunk_size
+    if len(section_text) <= soft_max:
+        return _to_paragraph_pieces(
+            [section_text],
+            base_metadata=base_metadata,
+            min_chunk_chars=min_chunk_chars,
+            chunk_overlap=0,
+            **section_kwargs,
+        )
+
+    # 超软上限：按「软上限 - 标题预留」切正文，每块都带标题前缀
     reserve = len(header) + 2
-    body_limit = max(32, chunk_size - reserve)
+    body_limit = max(32, soft_max - reserve)
     body_parts = recursive_split_text(
         body_text,
         chunk_size=body_limit,
@@ -86,7 +103,7 @@ def split_section_text(
             **section_kwargs,
         )
 
-    glued = [f"{header}\n\n{body_parts[0]}"] + body_parts[1:]
+    glued = [f"{header}\n\n{part}" for part in body_parts]
     return _to_paragraph_pieces(
         glued,
         base_metadata=base_metadata,
@@ -96,6 +113,13 @@ def split_section_text(
     )
 
 
+def _resolve_section_soft_max(*, chunk_size: int, section_soft_max: int | None) -> int:
+    """软上限至少不低于 chunk_size，避免配置失误导致比硬上限更严。"""
+    if section_soft_max is None or section_soft_max <= 0:
+        return max(chunk_size, DEFAULT_SECTION_SOFT_MAX)
+    return max(chunk_size, int(section_soft_max))
+
+
 def split_paragraph_text(
     text: str,
     *,
@@ -103,6 +127,7 @@ def split_paragraph_text(
     chunk_overlap: int = 0,
     base_metadata: dict,
     min_chunk_chars: int = DEFAULT_MIN_CHUNK_CHARS,
+    section_soft_max: int | None = None,
     section_title: str | None = None,
 ) -> list[ChunkPiece]:
     """对拼接后的纯文本做递归切分（无结构化 title 时的兼容入口）。"""
@@ -113,6 +138,7 @@ def split_paragraph_text(
         chunk_overlap=chunk_overlap,
         base_metadata=base_metadata,
         min_chunk_chars=min_chunk_chars,
+        section_soft_max=section_soft_max,
         section_title=section_title,
     )
 

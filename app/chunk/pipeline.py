@@ -17,6 +17,7 @@ from app.chunk.metadata import (
 from app.chunk.models import ChunkPiece, EmptyChunkInputError
 from app.chunk.paragraph_splitter import (
     DEFAULT_MIN_CHUNK_CHARS,
+    DEFAULT_SECTION_SOFT_MAX,
     split_full_text_fallback,
     split_section_text,
 )
@@ -46,10 +47,12 @@ class ChunkPipeline:
         chunk_size: int,
         chunk_overlap: int = 20,
         min_chunk_chars: int = DEFAULT_MIN_CHUNK_CHARS,
+        section_soft_max: int = DEFAULT_SECTION_SOFT_MAX,
     ) -> None:
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
         self._min_chunk_chars = min_chunk_chars
+        self._section_soft_max = max(chunk_size, section_soft_max)
 
     def chunk_document(
         self,
@@ -120,6 +123,7 @@ class ChunkPipeline:
                         chunk_overlap=self._chunk_overlap,
                         base_metadata=base_metadata,
                         min_chunk_chars=self._min_chunk_chars,
+                        section_soft_max=self._section_soft_max,
                         section_title=leaf,
                         parent_section=parent,
                         full_section_path=path,
