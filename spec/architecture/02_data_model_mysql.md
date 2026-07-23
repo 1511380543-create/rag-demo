@@ -119,9 +119,9 @@ export MYSQL_DATABASE="rag_demo"
 - `retrieved_before_filter`: int，过滤前召回数
 - `retrieved_after_filter`: int，过滤后召回数
 - `is_empty_recall`: tinyint，是否空召回（`0/1`）
-- `top_score`: double，最高分（可空，仅记录不参与过滤）
-- `min_score_value`: double，最低分（可空，仅记录不参与过滤）
-- `avg_score`: double，平均分（可空，仅记录不参与过滤）
+- `top_score`: double，最高分（可空；有召回时为过滤后最高分，空召回可回填阈值前最高分）
+- `min_score_value`: double，最低分（可空，过滤后 contexts 的最低分）
+- `avg_score`: double，平均分（可空，过滤后 contexts 的平均分）
 - `error_code`: varchar(64)，失败错误码（成功为空）
 - `created_at`: datetime(3)，创建时间
 
@@ -136,9 +136,12 @@ export MYSQL_DATABASE="rag_demo"
 - `query_text`: text，评测查询文本
 - `relevant_chunk_ids`: json，chunk 级标注（可空）
 - `expected_keywords`: json，关键词命中标注（可空）
+- `evidence_keys`: json，稳定证据键（可空；项含 `doc_id`/`anchor_text`/`content_hash`）
 - `keyword_match_mode`: varchar(8)，关键词匹配模式（`any`/`all`，默认 `any`）
 - `top_k`: int，样本级 `top_k`（可空）
 - `enabled`: tinyint，是否参与评测（`0/1`）
+- `expect_hit`: tinyint，期望命中（`1` 正样本 / `0` 负样本，默认 `1`）
+- `filters`: json，样本级元数据过滤（可空；与 `/rag/query.filters` 同语义）
 - `created_at`: datetime(3)，创建时间
 - `updated_at`: datetime(3)，更新时间
 
@@ -175,9 +178,9 @@ export MYSQL_DATABASE="rag_demo"
 
 - 查询索引：`idx_run_id(run_id)`
 
-### 3.7 `rag_eval_chunk_freezes`（切块冻结版元数据，第二轮待落地）
+### 3.7 `rag_eval_chunk_freezes`（切块冻结版元数据）
 
-> 约定见 `07` §3.2.2。物理表，非 VIEW；必要时手动打一版。
+> 约定见 `07` §3.2.2。物理表，非 VIEW；通过 `POST /rag/eval/chunk-freeze` 必要时手动打一版。
 
 - `id`: bigint 主键，自增（即 `freeze_id`）
 - `freeze_label`: varchar(128)，可读标签（如 `chunk-soft-max@2026-07-23`）
@@ -191,7 +194,7 @@ export MYSQL_DATABASE="rag_demo"
 
 - 唯一索引：`uk_freeze_label(freeze_label)`
 
-### 3.8 `rag_eval_chunk_snapshot_items`（切块冻结明细，第二轮待落地）
+### 3.8 `rag_eval_chunk_snapshot_items`（切块冻结明细）
 
 - `id`: bigint 主键，自增
 - `freeze_id`: bigint，关联 `rag_eval_chunk_freezes.id`

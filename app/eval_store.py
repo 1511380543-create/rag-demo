@@ -12,9 +12,14 @@ class EvalCaseRow:
     query_text: str
     relevant_chunk_ids: list[str] | None
     expected_keywords: list[str] | None
-    keyword_match_mode: str
-    top_k: int | None
-    enabled: bool
+    evidence_keys: list[dict] | None = None
+    keyword_match_mode: str = "any"
+    top_k: int | None = None
+    enabled: bool = True
+    # True：期望召回命中；False：负样本，期望 top_k 内不出现标注证据
+    expect_hit: bool = True
+    # 样本级元数据过滤，透传给检索（与 /rag/query.filters 同语义）
+    filters: dict | None = None
 
 
 @dataclass
@@ -54,15 +59,19 @@ class EvalStore:
     def upsert_cases(self, cases: list[EvalCaseRow]) -> int:
         upsert_sql = """
             INSERT INTO rag_eval_dataset
-                (case_id, query_text, relevant_chunk_ids, expected_keywords, keyword_match_mode, top_k, enabled)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (case_id, query_text, relevant_chunk_ids, expected_keywords, evidence_keys,
+                 keyword_match_mode, top_k, enabled, expect_hit, filters)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 query_text = VALUES(query_text),
                 relevant_chunk_ids = VALUES(relevant_chunk_ids),
                 expected_keywords = VALUES(expected_keywords),
+                evidence_keys = VALUES(evidence_keys),
                 keyword_match_mode = VALUES(keyword_match_mode),
                 top_k = VALUES(top_k),
-                enabled = VALUES(enabled)
+                enabled = VALUES(enabled),
+                expect_hit = VALUES(expect_hit),
+                filters = VALUES(filters)
         """
         rows = [
             (
@@ -70,9 +79,12 @@ class EvalStore:
                 case.query_text,
                 to_json(case.relevant_chunk_ids),
                 to_json(case.expected_keywords),
+                to_json(case.evidence_keys),
                 case.keyword_match_mode,
                 case.top_k,
                 1 if case.enabled else 0,
+                1 if case.expect_hit else 0,
+                to_json(case.filters),
             )
             for case in cases
         ]
@@ -84,7 +96,8 @@ class EvalStore:
 
     def list_cases(self) -> list[EvalCaseRow]:
         query = """
-            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, keyword_match_mode, top_k, enabled
+            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, evidence_keys,
+                   keyword_match_mode, top_k, enabled, expect_hit, filters
             FROM rag_eval_dataset
             ORDER BY case_id ASC
         """
@@ -96,7 +109,8 @@ class EvalStore:
 
     def fetch_cases(self, case_ids: list[str] | None) -> list[EvalCaseRow]:
         query = """
-            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, keyword_match_mode, top_k, enabled
+            SELECT case_id, query_text, relevant_chunk_ids, expected_keywords, evidence_keys,
+                   keyword_match_mode, top_k, enabled, expect_hit, filters
             FROM rag_eval_dataset
         """
         params: tuple[str, ...] = ()
@@ -202,12 +216,20 @@ class EvalStore:
     def _to_case_row(row: dict) -> EvalCaseRow:
         relevant = from_json(row["relevant_chunk_ids"])
         keywords = from_json(row["expected_keywords"])
+        evidence = from_json(row.get("evidence_keys"))
+        filters = from_json(row.get("filters"))
+        # 旧库缺列时按正样本默认
+        expect_raw = row.get("expect_hit")
+        expect_hit = True if expect_raw is None else int(expect_raw) == 1
         return EvalCaseRow(
             case_id=str(row["case_id"]),
             query_text=str(row["query_text"]),
             relevant_chunk_ids=list(relevant) if isinstance(relevant, list) else None,
             expected_keywords=list(keywords) if isinstance(keywords, list) else None,
+            evidence_keys=list(evidence) if isinstance(evidence, list) else None,
             keyword_match_mode=str(row["keyword_match_mode"]),
             top_k=int(row["top_k"]) if row["top_k"] is not None else None,
             enabled=int(row["enabled"]) == 1,
+            expect_hit=expect_hit,
+            filters=dict(filters) if isinstance(filters, dict) else None,
         )

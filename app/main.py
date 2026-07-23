@@ -9,6 +9,10 @@ from app.config import get_settings
 from app.models import (
     BuildIndexRequest,
     BuildIndexResponse,
+    ChunkFreezeCreateRequest,
+    ChunkFreezeCreateResponse,
+    ChunkFreezeDetailResponse,
+    ChunkFreezeListResponse,
     ChunkIngestResponse,
     ChunkRequest,
     ErrorResponse,
@@ -32,6 +36,7 @@ from app.rag_service import (
     NoChunksAvailableError,
     RagService,
 )
+from app.eval_freeze_store import DuplicateFreezeLabelError, NoChunksForFreezeError
 
 
 def _load_settings():
@@ -299,3 +304,78 @@ async def list_eval_runs(limit: int = Query(default=20, ge=1, le=100)) -> EvalRu
                 "detail": {"reason": str(exc)},
             },
         ) from exc
+
+
+@app.post("/rag/eval/chunk-freeze", response_model=ChunkFreezeCreateResponse)
+async def create_chunk_freeze(request: ChunkFreezeCreateRequest) -> ChunkFreezeCreateResponse:
+    """从现行 rag_chunks 手动打一版冻结快照。"""
+    try:
+        return rag_service.create_chunk_freeze(request)
+    except NoChunksForFreezeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "NO_CHUNKS_FOR_FREEZE", "message": str(exc), "detail": None},
+        ) from exc
+    except DuplicateFreezeLabelError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "DUPLICATE_FREEZE_LABEL", "message": str(exc), "detail": None},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VALIDATION_ERROR",
+                "message": "冻结参数非法",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "CHUNK_FREEZE_CREATE_ERROR",
+                "message": "切块冻结打版异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.get("/rag/eval/chunk-freezes", response_model=ChunkFreezeListResponse)
+async def list_chunk_freezes(limit: int = Query(default=20, ge=1, le=100)) -> ChunkFreezeListResponse:
+    try:
+        return rag_service.list_chunk_freezes(limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "CHUNK_FREEZE_LIST_ERROR",
+                "message": "切块冻结列表读取异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+
+
+@app.get("/rag/eval/chunk-freezes/{freeze_id}", response_model=ChunkFreezeDetailResponse)
+async def get_chunk_freeze(freeze_id: int) -> ChunkFreezeDetailResponse:
+    try:
+        result = rag_service.get_chunk_freeze(freeze_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "CHUNK_FREEZE_READ_ERROR",
+                "message": "切块冻结详情读取异常",
+                "detail": {"reason": str(exc)},
+            },
+        ) from exc
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "CHUNK_FREEZE_NOT_FOUND",
+                "message": f"冻结版不存在: {freeze_id}",
+                "detail": None,
+            },
+        )
+    return result

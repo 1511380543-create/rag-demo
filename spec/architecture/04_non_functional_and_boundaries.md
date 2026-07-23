@@ -12,14 +12,14 @@
 - `doc_id` 去空白后长度必须在 `1-128`
 - `window_minutes` 若传入必须为正整数
 - 评测 `case_id` 去空白后长度必须在 `1-128`
-- 评测样本 `relevant_chunk_ids` 与 `expected_keywords` 至少提供其一
+- 评测样本 `relevant_chunk_ids`、`expected_keywords`、`evidence_keys` 至少提供其一
 
 ## 2. 输出与结果约束
 
 - 返回 `contexts` 的数量不超过 `top_k`
 - 召回为空时返回空数组 `contexts=[]`
 - `chunk_id` 对应 `rag_chunks.id` 的字符串值
-- 本轮 `score` 仅作记录，不参与召回过滤，`contexts` 数量仅由 `top_k` 决定
+- 相似度低于 `min_score`（默认 `0.5`，环境变量 `RAG_MIN_SCORE`）的候选不进入 `contexts`；若无一达标则空召回
 - 监控聚合指标中的比率字段范围为 `0-1`
 - 评测指标 `hit/recall/mrr` 范围为 `0-1`（本轮不启用 `nDCG`）
 
@@ -42,11 +42,11 @@
 
 ## 5. 监控与测评非功能约束
 
-- 本轮监控只记录分数（`top_score`/`min_score_value`/`avg_score`），不做基于分数的过滤或降级
+- 检索对 `score` 应用 `min_score`（默认 `0.5`）过滤；监控仍记录 `top_score`/`min_score_value`/`avg_score`（空召回时可回填阈值前最高分便于诊断）
 - 监控采用请求内同步写库，不引入异步队列与降级逻辑
 - 监控埋点仅挂在 `/rag/query`；`/rag/eval/run` 不写入 `rag_query_logs`
 - 评测为离线主动触发，不在查询链路中自动执行
-- 监控与测评均不修改现有四个核心接口的既有成功语义
+- 监控与测评均不修改现有四个核心接口的既有成功语义（空召回仍为 `200` + `contexts=[]`）
 - 范围外能力见 `07` §4
 
 ## 6. 非目标范围

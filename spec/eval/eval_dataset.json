@@ -1,12 +1,20 @@
 {
-  "description": "构建高质量测评集第一轮（已完成）。方向：同域干扰 + 异域噪声。规模：docs/ 十份虚拟 PDF，50 条样本，统一 top_k=10。标注：L0 expected_keywords（过渡，非企业金标）。正式 baseline：06 §5.1 run_id=8。方向与优化说明：07 §3.4.1；第二轮 TODO：07 §3.4.2。",
-  "iteration": "构建高质量测评集第一轮",
+  "description": "构建高质量测评集：第一轮 50 条（同域干扰+异域噪声，baseline run_id=8）；第二轮约 32 条（长文/结构/负样本/多跳/效力/同实体/filters）+ min_score 空召回。第二轮正式 baseline：run_id=11。设计债见 07 §3.5。",
+  "iteration": "构建高质量测评集第二轮",
   "focus": [
     "同域干扰",
-    "异域噪声"
+    "异域噪声",
+    "长文切块压测",
+    "结构多样性",
+    "负样本",
+    "多跳组合证据",
+    "层级效力",
+    "同实体跨文档",
+    "权限类目过滤"
   ],
   "prerequisites": [
-    "十份 PDF 均已通过 /rag/extract → /rag/chunks 入库",
+    "十四份 PDF 均已通过 /rag/extract → /rag/chunks 入库",
+    "政策文档 pdf-diesel-retire-* 抽取 metadata 须含 category=policy、access_group=[\"ops\"]（filters 题依赖）",
     "已通过 /rag/index/build 构建索引"
   ],
   "doc_ids": [
@@ -19,7 +27,11 @@
     "pdf-danger-monitor",
     "pdf-vehicle-health-xch",
     "pdf-infosec-handbook",
-    "pdf-park-access"
+    "pdf-park-access",
+    "pdf-emission-long",
+    "pdf-transport-xch",
+    "pdf-diesel-retire-guidance",
+    "pdf-diesel-retire-rules-2026"
   ],
   "cases": [
     {
@@ -31,7 +43,17 @@
       ],
       "keyword_match_mode": "all",
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "11009"
+        },
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "心跳周期"
+        }
+      ]
     },
     {
       "case_id": "eval-obd-fault-report-id",
@@ -40,7 +62,13 @@
         "0x6002"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "0x6002"
+        }
+      ]
     },
     {
       "case_id": "eval-obd-heartbeat-msg-id",
@@ -49,7 +77,13 @@
         "0x1005/0x1006"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "0x1005/0x1006"
+        }
+      ]
     },
     {
       "case_id": "eval-obd-transport-protocol",
@@ -58,7 +92,13 @@
         "不支持UDP"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "不支持UDP"
+        }
+      ]
     },
     {
       "case_id": "eval-obd-work-data-report",
@@ -67,7 +107,13 @@
         "0x6001"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "0x6001"
+        }
+      ]
     },
     {
       "case_id": "eval-obd-data-encoding",
@@ -76,7 +122,13 @@
         "GB2312编码"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "GB2312编码"
+        }
+      ]
     },
     {
       "case_id": "eval-obd-offline-cache",
@@ -85,7 +137,13 @@
         "缓存容量不少于1000"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "缓存容量不少于1000"
+        }
+      ]
     },
     {
       "case_id": "eval-emission-scope",
@@ -94,7 +152,13 @@
         "第五条车型分类适用范围"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "第五条车型分类适用范围"
+        }
+      ]
     },
     {
       "case_id": "eval-emission-effective-date",
@@ -103,7 +167,13 @@
         "本标准自2026年07月01日起"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "本标准自2026年07月01日起"
+        }
+      ]
     },
     {
       "case_id": "eval-emission-force-scrap-age-operating",
@@ -114,7 +184,17 @@
       ],
       "keyword_match_mode": "all",
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "中重型营运柴油货车"
+        },
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "使用年限满8年"
+        }
+      ]
     },
     {
       "case_id": "eval-emission-mileage-light",
@@ -123,7 +203,13 @@
         "60万公里"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "60万公里"
+        }
+      ]
     },
     {
       "case_id": "eval-emission-subsidy-heavy-operating",
@@ -132,7 +218,13 @@
         "单车补贴12000-20000元"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "单车补贴12000-20000元"
+        }
+      ]
     },
     {
       "case_id": "eval-emission-danger-truck-age",
@@ -143,7 +235,17 @@
       ],
       "keyword_match_mode": "all",
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "危险品运输车辆"
+        },
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "使用年限满7年"
+        }
+      ]
     },
     {
       "case_id": "eval-heavy-diesel-scope-mass",
@@ -152,7 +254,13 @@
         "总质量3.5吨及以上"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-heavy-diesel-exempt",
+          "anchor_text": "总质量3.5吨及以上"
+        }
+      ]
     },
     {
       "case_id": "eval-heavy-diesel-obd-terminal",
@@ -161,7 +269,13 @@
         "车载终端(OBD终端)"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-heavy-diesel-exempt",
+          "anchor_text": "车载终端(OBD终端)"
+        }
+      ]
     },
     {
       "case_id": "eval-heavy-diesel-data-rate",
@@ -170,7 +284,13 @@
         "数据传输有效率不低于98%"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-heavy-diesel-exempt",
+          "anchor_text": "数据传输有效率不低于98%"
+        }
+      ]
     },
     {
       "case_id": "eval-heavy-diesel-revoke-over-emission",
@@ -179,7 +299,13 @@
         "立即撤销当期免年检资格"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-heavy-diesel-exempt",
+          "anchor_text": "立即撤销当期免年检资格"
+        }
+      ]
     },
     {
       "case_id": "eval-heavy-diesel-exempt-boundary",
@@ -188,7 +314,13 @@
         "豁免年度尾气排放上线检验"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-heavy-diesel-exempt",
+          "anchor_text": "豁免年度尾气排放上线检验"
+        }
+      ]
     },
     {
       "case_id": "eval-guosi-doc-no",
@@ -197,7 +329,13 @@
         "环发〔2026〕58号"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-guosi-subsidy",
+          "anchor_text": "环发〔2026〕58号"
+        }
+      ]
     },
     {
       "case_id": "eval-guosi-effective-date",
@@ -206,7 +344,13 @@
         "自2026年09月15日起施行"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-guosi-subsidy",
+          "anchor_text": "自2026年09月15日起施行"
+        }
+      ]
     },
     {
       "case_id": "eval-guosi-age-operating",
@@ -215,7 +359,13 @@
         "国四中重型营运柴油货车使用年限满10年"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-guosi-subsidy",
+          "anchor_text": "国四中重型营运柴油货车使用年限满10年"
+        }
+      ]
     },
     {
       "case_id": "eval-guosi-mileage-light",
@@ -224,7 +374,13 @@
         "累计行驶里程达到80万公里"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-guosi-subsidy",
+          "anchor_text": "累计行驶里程达到80万公里"
+        }
+      ]
     },
     {
       "case_id": "eval-guosi-subsidy-heavy",
@@ -233,7 +389,13 @@
         "单车补贴8000-15000元"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-guosi-subsidy",
+          "anchor_text": "单车补贴8000-15000元"
+        }
+      ]
     },
     {
       "case_id": "eval-gasoline-scope-mass",
@@ -242,7 +404,13 @@
         "总质量不超过3500千克的轻型汽油车"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-gasoline-inspect",
+          "anchor_text": "总质量不超过3500千克的轻型汽油车"
+        }
+      ]
     },
     {
       "case_id": "eval-gasoline-idle-duration",
@@ -251,7 +419,13 @@
         "怠速法检测时长不少于90秒"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-gasoline-inspect",
+          "anchor_text": "怠速法检测时长不少于90秒"
+        }
+      ]
     },
     {
       "case_id": "eval-gasoline-high-idle-rpm",
@@ -260,7 +434,13 @@
         "双怠速法高怠速转速范围2500±200转/分"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-gasoline-inspect",
+          "anchor_text": "双怠速法高怠速转速范围2500±200转/分"
+        }
+      ]
     },
     {
       "case_id": "eval-gasoline-calib-cycle",
@@ -269,7 +449,13 @@
         "设备校准周期不超过30个自然日"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-gasoline-inspect",
+          "anchor_text": "设备校准周期不超过30个自然日"
+        }
+      ]
     },
     {
       "case_id": "eval-gasoline-retest-interval",
@@ -278,7 +464,13 @@
         "不合格复检间隔不少于24小时"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-gasoline-inspect",
+          "anchor_text": "不合格复检间隔不少于24小时"
+        }
+      ]
     },
     {
       "case_id": "eval-nev-protocol",
@@ -287,7 +479,13 @@
         "仅支持MQTT over TLS"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-nev-monitor",
+          "anchor_text": "仅支持MQTT over TLS"
+        }
+      ]
     },
     {
       "case_id": "eval-nev-port",
@@ -296,7 +494,13 @@
         "平台接入端口9443"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-nev-monitor",
+          "anchor_text": "平台接入端口9443"
+        }
+      ]
     },
     {
       "case_id": "eval-nev-heartbeat",
@@ -305,7 +509,13 @@
         "终端心跳周期为60秒"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-nev-monitor",
+          "anchor_text": "终端心跳周期为60秒"
+        }
+      ]
     },
     {
       "case_id": "eval-nev-work-msg-id",
@@ -314,7 +524,13 @@
         "报文指令 ID 为0xA101"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-nev-monitor",
+          "anchor_text": "报文指令 ID 为0xA101"
+        }
+      ]
     },
     {
       "case_id": "eval-nev-offline-cache",
@@ -323,7 +539,13 @@
         "本地缓存不少于5000条"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-nev-monitor",
+          "anchor_text": "本地缓存不少于5000条"
+        }
+      ]
     },
     {
       "case_id": "eval-danger-track-interval",
@@ -332,7 +554,13 @@
         "轨迹回传间隔不超过30秒"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-danger-monitor",
+          "anchor_text": "轨迹回传间隔不超过30秒"
+        }
+      ]
     },
     {
       "case_id": "eval-danger-retain-days",
@@ -341,7 +569,13 @@
         "保存轨迹数据不少于180天"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-danger-monitor",
+          "anchor_text": "保存轨迹数据不少于180天"
+        }
+      ]
     },
     {
       "case_id": "eval-danger-overspeed-threshold",
@@ -350,7 +584,13 @@
         "超速报警阈值阈值为同一路段连续3次超速"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-danger-monitor",
+          "anchor_text": "超速报警阈值阈值为同一路段连续3次超速"
+        }
+      ]
     },
     {
       "case_id": "eval-danger-scrap-age",
@@ -359,7 +599,13 @@
         "危险品运输车辆强制报废使用年限满8年"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-danger-monitor",
+          "anchor_text": "危险品运输车辆强制报废使用年限满8年"
+        }
+      ]
     },
     {
       "case_id": "eval-danger-doc-no",
@@ -368,7 +614,13 @@
         "交运规〔2026〕11号"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-danger-monitor",
+          "anchor_text": "交运规〔2026〕11号"
+        }
+      ]
     },
     {
       "case_id": "eval-health-encoding",
@@ -377,7 +629,13 @@
         "数据交换报文编码采用UTF-8"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-vehicle-health-xch",
+          "anchor_text": "数据交换报文编码采用UTF-8"
+        }
+      ]
     },
     {
       "case_id": "eval-health-sync-path",
@@ -386,7 +644,13 @@
         "/v1/vehicle-health/sync"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-vehicle-health-xch",
+          "anchor_text": "/v1/vehicle-health/sync"
+        }
+      ]
     },
     {
       "case_id": "eval-health-batch-limit",
@@ -395,7 +659,13 @@
         "单次批量上传上限200条"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-vehicle-health-xch",
+          "anchor_text": "单次批量上传上限200条"
+        }
+      ]
     },
     {
       "case_id": "eval-health-retry-backoff",
@@ -404,7 +674,13 @@
         "重试退避基数为5秒"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-vehicle-health-xch",
+          "anchor_text": "重试退避基数为5秒"
+        }
+      ]
     },
     {
       "case_id": "eval-health-retain-years",
@@ -413,7 +689,13 @@
         "档案保留期限不少于6年"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-vehicle-health-xch",
+          "anchor_text": "档案保留期限不少于6年"
+        }
+      ]
     },
     {
       "case_id": "eval-infosec-secret-export",
@@ -422,7 +704,13 @@
         "机密级文档外发须经信息安全委员会双人审批"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-infosec-handbook",
+          "anchor_text": "机密级文档外发须经信息安全委员会双人审批"
+        }
+      ]
     },
     {
       "case_id": "eval-infosec-password-len",
@@ -431,7 +719,13 @@
         "密码最短长度不少于12位"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-infosec-handbook",
+          "anchor_text": "密码最短长度不少于12位"
+        }
+      ]
     },
     {
       "case_id": "eval-infosec-incident-sla",
@@ -440,7 +734,13 @@
         "安全事件上报时限为发现后2小时内"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-infosec-handbook",
+          "anchor_text": "安全事件上报时限为发现后2小时内"
+        }
+      ]
     },
     {
       "case_id": "eval-park-reserve-lead",
@@ -449,7 +749,13 @@
         "提前至少4小时在线预约"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-park-access",
+          "anchor_text": "提前至少4小时在线预约"
+        }
+      ]
     },
     {
       "case_id": "eval-park-passcode-expiry",
@@ -458,7 +764,13 @@
         "临时通行码有效期为当日24时前"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-park-access",
+          "anchor_text": "临时通行码有效期为当日24时前"
+        }
+      ]
     },
     {
       "case_id": "eval-park-lock-threshold",
@@ -467,7 +779,13 @@
         "门禁刷卡失败连续5次锁定"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-park-access",
+          "anchor_text": "门禁刷卡失败连续5次锁定"
+        }
+      ]
     },
     {
       "case_id": "eval-park-speed-limit",
@@ -476,10 +794,588 @@
         "园区主干道限速20公里/小时"
       ],
       "top_k": 10,
-      "enabled": true
+      "enabled": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-park-access",
+          "anchor_text": "园区主干道限速20公里/小时"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-long-softmax-anchor",
+      "query_text": "长文手册第三章用于软上限切开压测的检索锚点句是什么？",
+      "expected_keywords": [
+        "长文手册第三章软上限压测锚点句-PF-SOFTMAX-2026"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-long",
+          "anchor_text": "长文手册第三章软上限压测锚点句-PF-SOFTMAX-2026"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-long-efficiency-alert",
+      "query_text": "长文手册中远程监控传输有效率警戒线是多少？",
+      "expected_keywords": [
+        "长文手册有效率警戒线95%"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-long",
+          "anchor_text": "长文手册有效率警戒线95%"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-long-closed-loop-days",
+      "query_text": "长文手册约定的综合监管闭环周期是多少天？",
+      "expected_keywords": [
+        "综合监管闭环周期为90个自然日"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-long",
+          "anchor_text": "综合监管闭环周期为90个自然日"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-long-remote-recheck",
+      "query_text": "长文手册规定遥感筛查阳性复核时限是多少？",
+      "expected_keywords": [
+        "遥感筛查阳性复核时限为48小时"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-long",
+          "anchor_text": "遥感筛查阳性复核时限为48小时"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-long-appendix1-anchor",
+      "query_text": "长文手册附录1的检索锚点编码是什么？",
+      "expected_keywords": [
+        "LONG-APPENDIX-1-ANCHOR"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-long",
+          "anchor_text": "LONG-APPENDIX-1-ANCHOR"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-xch-version",
+      "query_text": "道路运政数据交换规范的主版本号是什么？",
+      "expected_keywords": [
+        "运政交换规范主版本号为XCH-2026.05"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-transport-xch",
+          "anchor_text": "运政交换规范主版本号为XCH-2026.05"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-xch-batch-limit",
+      "query_text": "运政数据交换单次批量上报上限是多少条？",
+      "expected_keywords": [
+        "单次批量上报上限为500条"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-transport-xch",
+          "anchor_text": "单次批量上报上限为500条"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-xch-field-vrd019",
+      "query_text": "车辆运行日报续表中原始报文哈希对应的字段编码是什么？",
+      "expected_keywords": [
+        "VRD_019原始报文哈希"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-transport-xch",
+          "anchor_text": "VRD_019原始报文哈希"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-xch-daily-sync-path",
+      "query_text": "运政日报同步接口路径是什么？",
+      "expected_keywords": [
+        "/v1/transport/daily-report/sync"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-transport-xch",
+          "anchor_text": "/v1/transport/daily-report/sync"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-xch-speed-close-rate",
+      "query_text": "企业周汇总中超速报警闭环率的预警阈值是多少？",
+      "expected_keywords": [
+        "企业周汇总超速报警闭环率预警阈值为低于98%"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-transport-xch",
+          "anchor_text": "企业周汇总超速报警闭环率预警阈值为低于98%"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-xch-key-rotation",
+      "query_text": "运政交换规范要求密钥轮换周期不超过多少天？",
+      "expected_keywords": [
+        "密钥轮换周期不超过90天"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-transport-xch",
+          "anchor_text": "密钥轮换周期不超过90天"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-neg-park-no-scrap-age",
+      "query_text": "智慧园区门禁规范规定的国三中重型营运柴油货车强制报废年限是多少年？",
+      "expected_keywords": [
+        "国三中重型营运柴油货车、大中型营运柴油客车：使用年限满8年",
+        "使用年限满8年",
+        "使用年限满7年",
+        "危险品运输车辆强制报废使用年限满8年",
+        "2026修订版中重型营运柴油货车强制淘汰年限为满10年"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": false
+    },
+    {
+      "case_id": "eval-neg-infosec-no-obd-port",
+      "query_text": "信息安全手册中 JT/T 809 协议默认通信端口是多少？",
+      "expected_keywords": [
+        "11009",
+        "平台接入端口9443"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": false
+    },
+    {
+      "case_id": "eval-neg-out-of-corpus-canteen",
+      "query_text": "公司食堂午餐窗口停止供餐的时间是几点？",
+      "expected_keywords": [
+        "心跳周期",
+        "强制报废",
+        "门禁刷卡失败连续5次锁定",
+        "密码最短长度不少于12位",
+        "综合监管闭环周期为90个自然日"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": false
+    },
+    {
+      "case_id": "eval-neg-health-no-retire-subsidy",
+      "query_text": "机动车维修电子健康档案规范中的国四柴油货车提前淘汰单车补贴标准是多少？",
+      "expected_keywords": [
+        "单车补贴8000-15000元",
+        "2026修订版中重型营运柴油货车单车补贴为8000-16000元",
+        "最高不超过10000元"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": false
+    },
+    {
+      "case_id": "eval-multi-scrap-vs-danger-age",
+      "query_text": "中重型营运柴油货车国三强制报废年限，与危险品运输车辆强制报废年限分别是多少？",
+      "expected_keywords": [
+        "国三中重型营运柴油货车、大中型营运柴油客车：使用年限满8年",
+        "危险品运输车辆强制报废使用年限满8年"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "keyword_match_mode": "all",
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "国三中重型营运柴油货车、大中型营运柴油客车：使用年限满8年"
+        },
+        {
+          "doc_id": "pdf-danger-monitor",
+          "anchor_text": "危险品运输车辆强制报废使用年限满8年"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-multi-guidance-vs-rules-age",
+      "query_text": "老旧柴油车淘汰：指导意见建议的中重型营运柴油货车评估年限，与2026细则强制淘汰年限分别是多少？",
+      "expected_keywords": [
+        "指导意见建议中重型营运柴油货车使用年限满12年启动淘汰评估",
+        "2026修订版中重型营运柴油货车强制淘汰年限为满10年"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "keyword_match_mode": "all",
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-guidance",
+          "anchor_text": "指导意见建议中重型营运柴油货车使用年限满12年启动淘汰评估"
+        },
+        {
+          "doc_id": "pdf-diesel-retire-rules-2026",
+          "anchor_text": "2026修订版中重型营运柴油货车强制淘汰年限为满10年"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-multi-obd-vs-nev-heartbeat",
+      "query_text": "809 协议心跳周期与新能源远程监控心跳周期分别涉及哪些关键表述？",
+      "expected_keywords": [
+        "心跳周期",
+        "仅支持MQTT over TLS"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "keyword_match_mode": "all",
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-obd-809",
+          "anchor_text": "心跳周期"
+        },
+        {
+          "doc_id": "pdf-nev-monitor",
+          "anchor_text": "仅支持MQTT over TLS"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-retire-current-force-age",
+      "query_text": "按现行有效标准，中重型营运柴油货车强制淘汰年限是多少年？",
+      "expected_keywords": [
+        "2026修订版中重型营运柴油货车强制淘汰年限为满10年"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-rules-2026",
+          "anchor_text": "2026修订版中重型营运柴油货车强制淘汰年限为满10年"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-retire-guidance-suggest-age",
+      "query_text": "淘汰更新指导意见建议中重型营运柴油货车满多少年启动淘汰评估？",
+      "expected_keywords": [
+        "指导意见建议中重型营运柴油货车使用年限满12年启动淘汰评估"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-guidance",
+          "anchor_text": "指导意见建议中重型营运柴油货车使用年限满12年启动淘汰评估"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-retire-current-subsidy",
+      "query_text": "2026修订版中重型营运柴油货车提前淘汰单车补贴标准是多少？",
+      "expected_keywords": [
+        "2026修订版中重型营运柴油货车单车补贴为8000-16000元"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-rules-2026",
+          "anchor_text": "2026修订版中重型营运柴油货车单车补贴为8000-16000元"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-retire-guidance-subsidy-cap",
+      "query_text": "指导意见提出的提前淘汰中央财政补贴原则上限是多少？",
+      "expected_keywords": [
+        "指导意见提出提前淘汰中央财政补贴可按单车最高不超过10000元掌握"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-guidance",
+          "anchor_text": "指导意见提出提前淘汰中央财政补贴可按单车最高不超过10000元掌握"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-retire-conflict-follow-rules",
+      "query_text": "指导意见与实施细则量化冲突时应以哪个为准？",
+      "expected_keywords": [
+        "指导意见量化冲突时从细则"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-guidance",
+          "anchor_text": "指导意见量化冲突时从细则"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-retire-rules-effective-date",
+      "query_text": "老旧柴油车淘汰更新实施细则（2026修订版）自何时起施行？",
+      "expected_keywords": [
+        "2026修订版自2026年08月01日起施行"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-rules-2026",
+          "anchor_text": "2026修订版自2026年08月01日起施行"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-retire-current-standard-doc",
+      "query_text": "现行淘汰更新量化标准以哪份文号为准？",
+      "expected_keywords": [
+        "现行淘汰更新量化标准以环发〔2026〕41号为准"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-rules-2026",
+          "anchor_text": "现行淘汰更新量化标准以环发〔2026〕41号为准"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-entity-danger-not-use-guosan-age",
+      "query_text": "危险品运输车辆年限计算能否直接套用国三柴油车报废标准年限？",
+      "expected_keywords": [
+        "不得直接套用环发〔2026〕32号年限"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-danger-monitor",
+          "anchor_text": "不得直接套用环发〔2026〕32号年限"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-entity-exempt-vs-guosan-scrap",
+      "query_text": "重型柴油车免年检资格在何种情形会立即撤销？该问题不考察报废年限本身。",
+      "expected_keywords": [
+        "立即撤销当期免年检资格"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-heavy-diesel-exempt",
+          "anchor_text": "立即撤销当期免年检资格"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-entity-guosan-vs-guosi-heavy-age",
+      "query_text": "国三中重型营运柴油货车强制报废年限与国四中重型营运柴油货车启动淘汰年限分别是多少？",
+      "expected_keywords": [
+        "国三中重型营运柴油货车、大中型营运柴油客车：使用年限满8年",
+        "国四中重型营运柴油货车使用年限满10年"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "keyword_match_mode": "all",
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-emission-std",
+          "anchor_text": "国三中重型营运柴油货车、大中型营运柴油客车：使用年限满8年"
+        },
+        {
+          "doc_id": "pdf-guosi-subsidy",
+          "anchor_text": "国四中重型营运柴油货车使用年限满10年"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-entity-gasoline-vs-diesel-exempt",
+      "query_text": "轻型汽油车年检与重型柴油车免年检不是同一套规则；申请免年检需要安装什么车载终端？",
+      "expected_keywords": [
+        "车载终端(OBD终端)"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-heavy-diesel-exempt",
+          "anchor_text": "车载终端(OBD终端)"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-filter-policy-retire-age",
+      "query_text": "中重型营运柴油货车现行强制淘汰年限是多少年？",
+      "expected_keywords": [
+        "2026修订版中重型营运柴油货车强制淘汰年限为满10年"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "filters": {
+        "category": "policy"
+      },
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-rules-2026",
+          "anchor_text": "2026修订版中重型营运柴油货车强制淘汰年限为满10年"
+        }
+      ]
+    },
+    {
+      "case_id": "eval-filter-pdf-excludes-policy-subsidy",
+      "query_text": "2026修订版中重型营运柴油货车单车补贴标准是多少？",
+      "expected_keywords": [
+        "2026修订版中重型营运柴油货车单车补贴为8000-16000元",
+        "8000-16000元"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": false,
+      "filters": {
+        "category": "pdf"
+      }
+    },
+    {
+      "case_id": "eval-filter-access-ops-retire-doc",
+      "query_text": "现行淘汰更新量化标准以哪份文号为准？",
+      "expected_keywords": [
+        "现行淘汰更新量化标准以环发〔2026〕41号为准"
+      ],
+      "top_k": 10,
+      "enabled": true,
+      "expect_hit": true,
+      "filters": {
+        "access_group": [
+          "ops"
+        ]
+      },
+      "evidence_keys": [
+        {
+          "doc_id": "pdf-diesel-retire-rules-2026",
+          "anchor_text": "现行淘汰更新量化标准以环发〔2026〕41号为准"
+        }
+      ]
     }
   ],
   "eval_top_k_default": 10,
-  "status": "completed",
-  "baseline_run_id": 8
+  "status": "round2_completed",
+  "baseline_run_id": 8,
+  "annotation": {
+    "l0": "expected_keywords",
+    "l1_transition": "evidence_keys = doc_id + anchor_text",
+    "negative": "expect_hit=false",
+    "filters": "样本级 filters；政策文档 category=policy / access_group=[ops]",
+    "known_debts": "见 07 §3.5（匹配过脆；实体主导检索）"
+  },
+  "round2_baseline_run_id": 11,
+  "round2_case_ids": [
+    "eval-long-softmax-anchor",
+    "eval-long-efficiency-alert",
+    "eval-long-closed-loop-days",
+    "eval-long-remote-recheck",
+    "eval-long-appendix1-anchor",
+    "eval-xch-version",
+    "eval-xch-batch-limit",
+    "eval-xch-field-vrd019",
+    "eval-xch-daily-sync-path",
+    "eval-xch-speed-close-rate",
+    "eval-xch-key-rotation",
+    "eval-neg-park-no-scrap-age",
+    "eval-neg-infosec-no-obd-port",
+    "eval-neg-out-of-corpus-canteen",
+    "eval-neg-health-no-retire-subsidy",
+    "eval-multi-scrap-vs-danger-age",
+    "eval-multi-guidance-vs-rules-age",
+    "eval-multi-obd-vs-nev-heartbeat",
+    "eval-retire-current-force-age",
+    "eval-retire-guidance-suggest-age",
+    "eval-retire-current-subsidy",
+    "eval-retire-guidance-subsidy-cap",
+    "eval-retire-conflict-follow-rules",
+    "eval-retire-rules-effective-date",
+    "eval-retire-current-standard-doc",
+    "eval-entity-danger-not-use-guosan-age",
+    "eval-entity-exempt-vs-guosan-scrap",
+    "eval-entity-guosan-vs-guosi-heavy-age",
+    "eval-entity-gasoline-vs-diesel-exempt",
+    "eval-filter-policy-retire-age",
+    "eval-filter-pdf-excludes-policy-subsidy",
+    "eval-filter-access-ops-retire-doc"
+  ],
+  "case_count": 82
 }

@@ -18,6 +18,8 @@ TABLES = (
     "rag_eval_run_items",
     "rag_eval_runs",
     "rag_eval_dataset",
+    "rag_eval_chunk_snapshot_items",
+    "rag_eval_chunk_freezes",
     "rag_query_logs",
     "rag_chunks",
     "rag_documents",
@@ -58,6 +60,35 @@ def ensure_test_database() -> None:
         with conn.cursor() as cursor:
             for statement in _split_sql_statements(schema_sql):
                 cursor.execute(statement)
+            # 旧测试库可能缺第二轮新增列，补齐后再跑用例
+            _ensure_column(
+                cursor,
+                TEST_DATABASE,
+                "rag_eval_dataset",
+                "expect_hit",
+                "TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '期望命中:1正样本0负样本'",
+            )
+            _ensure_column(
+                cursor,
+                TEST_DATABASE,
+                "rag_eval_dataset",
+                "filters",
+                "JSON NULL COMMENT '样本级元数据过滤'",
+            )
+
+
+def _ensure_column(cursor, database: str, table: str, column: str, definition: str) -> None:
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
+        """,
+        (database, table, column),
+    )
+    row = cursor.fetchone() or {}
+    if int(row.get("cnt", 0)) == 0:
+        cursor.execute(f"ALTER TABLE `{table}` ADD COLUMN `{column}` {definition}")
 
 
 def truncate_test_tables(settings: Settings | None = None) -> None:

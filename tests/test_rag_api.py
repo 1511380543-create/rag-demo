@@ -5,7 +5,7 @@
 - 审核基准：CASE_META 中的 expected（期望）与 note（备注）。
 - 执行命令：conda activate rag-demo && pytest tests/ -q
 - Mock 边界：仅隔离外部 Embedding HTTP；抽取 / 切块 / MySQL 均为真实内部依赖。
-- 已知差距：rag_retrieval_empty_reg_001 为 xfail（低相关阈值未实现）。
+- 已知差距：无（`rag_retrieval_empty_reg_001` 已落地 min_score=0.5）。
 """
 
 from __future__ import annotations
@@ -368,14 +368,17 @@ def test_rag_retrieval_reg_001(client: TestClient) -> None:
     )
 
 
-@pytest.mark.xfail(reason="当前实现无低相关阈值过滤，已知行为", strict=False)
 def test_rag_retrieval_empty_reg_001(client: TestClient) -> None:
-    """备注：该用例用于跟踪低相关查询返回空召回的目标行为。"""
+    """备注：低相关查询经 min_score 过滤后应返回空召回。"""
     _ingest_two_pdfs(client)
     _build_index(client)
     response = client.post("/rag/query", json={"query": "今天天气怎么样，推荐电影", "top_k": 3})
     assert response.status_code == 200
-    assert response.json()["contexts"] == []
+    body = response.json()
+    assert body["contexts"] == []
+    trace = body.get("trace") or {}
+    assert trace.get("min_score") == 0.5
+    assert trace.get("retrieved_after_filter") == 0
 
 
 def test_rag_eval_dataset_upsert_001(client: TestClient) -> None:
@@ -435,12 +438,93 @@ def test_rag_eval_dataset_fail_empty_001(client: TestClient) -> None:
 
 
 def test_rag_eval_dataset_fail_no_gt_001(client: TestClient) -> None:
-    """备注：两类 ground truth 均缺失应返回 422。"""
+    """备注：三类 ground truth 均缺失应返回 422。"""
     response = client.post(
         "/rag/eval/dataset",
         json={"cases": [{"case_id": "no-gt-001", "query_text": "缺少标注的 query"}]},
     )
     assert response.status_code == 422
+
+
+def test_rag_eval_dataset_evidence_keys_001(client: TestClient) -> None:
+    """备注：仅 evidence_keys 亦可作为 ground truth 写入并回读。"""
+    payload = {
+        "case_id": "eval-evidence-only-001",
+        "query_text": "仅证据键标注",
+        "evidence_keys": [{"doc_id": "pdf-obd-809", "anchor_text": "11009"}],
+    }
+    upsert = client.post("/rag/eval/dataset", json={"cases": [payload]})
+    assert upsert.status_code == 200
+    listed = client.get("/rag/eval/dataset").json()
+    matched = [c for c in listed["cases"] if c["case_id"] == payload["case_id"]]
+    assert len(matched) == 1
+    keys = matched[0]["evidence_keys"]
+    assert keys is not None and len(keys) == 1
+    assert keys[0]["doc_id"] == "pdf-obd-809"
+    assert keys[0]["anchor_text"] == "11009"
+
+
+def test_rag_eval_dataset_expect_hit_filters_001(client: TestClient) -> None:
+    """备注：负样本 expect_hit 与样本级 filters 可写入并回读。"""
+    payload = {
+        "case_id": "eval-neg-filters-001",
+        "query_text": "带过滤的负样本",
+        "expected_keywords": ["使用年限满8年"],
+        "expect_hit": False,
+        "filters": {"category": "pdf"},
+    }
+    upsert = client.post("/rag/eval/dataset", json={"cases": [payload]})
+    assert upsert.status_code == 200
+    listed = client.get("/rag/eval/dataset").json()
+    matched = [c for c in listed["cases"] if c["case_id"] == payload["case_id"]]
+    assert len(matched) == 1
+    assert matched[0]["expect_hit"] is False
+    assert matched[0]["filters"] == {"category": "pdf"}
+
+
+def test_rag_eval_chunk_freeze_ok_001(client: TestClient) -> None:
+    """备注：有 chunks 时可打版、列表、读详情；重复标签 409。"""
+    from app.config import get_settings
+    from app.mysql_chunk_store import ChunkWriteItem, MySQLChunkStore
+
+    store = MySQLChunkStore(get_settings())
+    store.replace_document_chunks(
+        "freeze-doc-1",
+        [ChunkWriteItem(chunk_index=0, chunk_text="冻结测试正文 11009", metadata=None)],
+    )
+    label = "freeze-test-label-001"
+    create = client.post(
+        "/rag/eval/chunk-freeze",
+        json={"freeze_label": label, "note": "单测打版"},
+    )
+    assert create.status_code == 200
+    body = create.json()
+    assert body["freeze_label"] == label
+    assert body["chunk_count"] >= 1
+    freeze_id = body["freeze_id"]
+
+    listed = client.get("/rag/eval/chunk-freezes?limit=5")
+    assert listed.status_code == 200
+    assert listed.json()["total"] >= 1
+
+    detail = client.get(f"/rag/eval/chunk-freezes/{freeze_id}")
+    assert detail.status_code == 200
+    assert detail.json()["freeze_id"] == freeze_id
+    assert len(detail.json()["sample_items"]) >= 1
+
+    dup = client.post("/rag/eval/chunk-freeze", json={"freeze_label": label})
+    assert dup.status_code == 409
+    assert dup.json()["error_code"] == "DUPLICATE_FREEZE_LABEL"
+
+
+def test_rag_eval_chunk_freeze_fail_empty_001(client: TestClient) -> None:
+    """备注：无 chunks 打版应 400。"""
+    response = client.post(
+        "/rag/eval/chunk-freeze",
+        json={"freeze_label": "freeze-empty-should-fail"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "NO_CHUNKS_FOR_FREEZE"
 
 
 def test_rag_eval_run_ok_001(client: TestClient) -> None:

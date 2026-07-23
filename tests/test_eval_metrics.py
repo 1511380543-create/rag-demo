@@ -99,3 +99,30 @@ def test_rag_eval_metrics_unit_keyword_all_001() -> None:
     )
     assert full.hit == 1
     assert full.mrr > 0
+
+
+def test_rag_eval_metrics_unit_expect_no_hit_001() -> None:
+    """备注：负样本 expect_hit=false 时，召回含标注关键词则 hit=0。"""
+    case = EvalCaseRow(
+        case_id="neg-001",
+        query_text="门禁规范里的报废年限？",
+        relevant_chunk_ids=None,
+        expected_keywords=["使用年限满8年"],
+        expect_hit=False,
+    )
+    bad = compute_eval_metrics(
+        case=case,
+        retrieved_chunk_ids=["c1"],
+        retrieved_texts=["国三车辆使用年限满8年"],
+    )
+    assert bad.hit == 0
+    assert bad.recall == 0.0
+    assert bad.mrr == 0.0
+
+    good = compute_eval_metrics(
+        case=case,
+        retrieved_chunk_ids=["c2"],
+        retrieved_texts=["门禁刷卡失败连续5次锁定"],
+    )
+    assert good.hit == 1
+    assert good.mrr == 0.0

@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import RLock
 from time import perf_counter
 from datetime import datetime
@@ -11,6 +11,8 @@ from llama_index.core.schema import QueryBundle, TextNode
 from app.chunk.models import EmptyChunkInputError
 from app.chunk.pipeline import ChunkPipeline
 from app.config import Settings
+from app.eval_evidence import EvidenceKeyData, merge_relevant_chunk_ids, resolve_evidence_keys_to_chunk_ids
+from app.eval_freeze_store import EvalFreezeStore
 from app.eval_metrics import compute_eval_metrics
 from app.eval_store import EvalCaseRow, EvalRunItemRow, EvalStore
 from app.extract.models import ContentBlock
@@ -23,6 +25,11 @@ except ImportError:  # pragma: no cover
 
 from app.models import (
     BuildIndexRequest,
+    ChunkFreezeCreateRequest,
+    ChunkFreezeCreateResponse,
+    ChunkFreezeDetailResponse,
+    ChunkFreezeListResponse,
+    ChunkFreezeSummary,
     EvalCase,
     EvalDatasetListResponse,
     EvalMetricItem,
@@ -30,6 +37,7 @@ from app.models import (
     EvalRunRequest,
     EvalRunResponse,
     EvalRunSummary,
+    EvidenceKey,
     ExtractReportItem,
     HealthResponse,
     IndexDocument,
@@ -39,7 +47,7 @@ from app.models import (
     RetrievedContext,
 )
 from app.monitoring_store import MonitoringStore, QueryLogItem
-from app.mysql_chunk_store import ChunkWriteItem, MySQLChunkStore
+from app.mysql_chunk_store import ChunkRow, ChunkWriteItem, MySQLChunkStore
 from app.mysql_document_store import MySQLDocumentStore
 from app.qwen_embedding import QwenEmbedding
 
@@ -70,6 +78,8 @@ class _RetrievalResult:
     embed_ms: int
     retrieve_ms: int
     retrieved_before_filter: int
+    # 元数据过滤后、分数阈值前的最高分（空召回时用于监控/trace 诊断）
+    top_score_before_min_score: float | None = None
 
 
 class RagService:
@@ -93,6 +103,7 @@ class RagService:
         self._chunk_store = MySQLChunkStore(settings=settings)
         self._monitoring_store = MonitoringStore(settings=settings)
         self._eval_store = EvalStore(settings=settings)
+        self._eval_freeze_store = EvalFreezeStore(settings=settings, chunk_store=self._chunk_store)
         self._embed_model = QwenEmbedding(
             api_key=settings.api_key_ali,
             model_name=settings.embedding_model,
@@ -229,6 +240,10 @@ class RagService:
                 )
                 total_ms = int((perf_counter() - total_start) * 1000)
                 score_stats = self._score_stats(retrieval.contexts)
+                # 空召回时回填阈值前最高分，便于区分「无候选」与「低相关被清空」
+                logged_top = score_stats["top_score"]
+                if logged_top is None:
+                    logged_top = retrieval.top_score_before_min_score
                 response = QueryResponse(
                     query=request.query,
                     top_k=request.top_k,
@@ -237,6 +252,8 @@ class RagService:
                         "retrieved_before_filter": retrieval.retrieved_before_filter,
                         "retrieved_after_filter": len(retrieval.contexts),
                         "filters_applied": bool(request.filters),
+                        "min_score": self._settings.min_score,
+                        "top_score_before_min_score": retrieval.top_score_before_min_score,
                         "embed_ms": retrieval.embed_ms,
                         "retrieve_ms": retrieval.retrieve_ms,
                         "total_ms": total_ms,
@@ -253,6 +270,7 @@ class RagService:
                     contexts=retrieval.contexts,
                     total_ms=total_ms,
                     error_code=None,
+                    top_score_override=logged_top if not retrieval.contexts else None,
                 )
                 return response
             except Exception:
@@ -290,9 +308,16 @@ class RagService:
                 query_text=case.query_text,
                 relevant_chunk_ids=case.relevant_chunk_ids,
                 expected_keywords=case.expected_keywords,
+                evidence_keys=(
+                    [key.model_dump(exclude_none=True) for key in case.evidence_keys]
+                    if case.evidence_keys
+                    else None
+                ),
                 keyword_match_mode=case.keyword_match_mode,
                 top_k=case.top_k,
                 enabled=case.enabled,
+                expect_hit=case.expect_hit,
+                filters=case.filters,
             )
             for case in cases
         ]
@@ -303,6 +328,58 @@ class RagService:
         cases = [self._to_eval_case(row) for row in rows]
         return EvalDatasetListResponse(cases=cases, total=len(cases))
 
+    def create_chunk_freeze(self, request: ChunkFreezeCreateRequest) -> ChunkFreezeCreateResponse:
+        """从现行 rag_chunks 手动打一版冻结快照。"""
+        row = self._eval_freeze_store.create_freeze(
+            freeze_label=request.freeze_label,
+            note=request.note,
+            pipeline_version=request.pipeline_version,
+            doc_ids=request.doc_ids,
+        )
+        return ChunkFreezeCreateResponse(
+            freeze_id=row.freeze_id,
+            freeze_label=row.freeze_label,
+            note=row.note,
+            pipeline_version=row.pipeline_version,
+            doc_count=row.doc_count,
+            chunk_count=row.chunk_count,
+            created_at=row.created_at,
+        )
+
+    def list_chunk_freezes(self, limit: int) -> ChunkFreezeListResponse:
+        rows = self._eval_freeze_store.list_freezes(limit)
+        total = self._eval_freeze_store.count_freezes()
+        return ChunkFreezeListResponse(
+            freezes=[
+                ChunkFreezeSummary(
+                    freeze_id=row.freeze_id,
+                    freeze_label=row.freeze_label,
+                    note=row.note,
+                    pipeline_version=row.pipeline_version,
+                    doc_count=row.doc_count,
+                    chunk_count=row.chunk_count,
+                    created_at=row.created_at,
+                )
+                for row in rows
+            ],
+            total=total,
+        )
+
+    def get_chunk_freeze(self, freeze_id: int) -> ChunkFreezeDetailResponse | None:
+        row = self._eval_freeze_store.get_freeze(freeze_id)
+        if row is None:
+            return None
+        return ChunkFreezeDetailResponse(
+            freeze_id=row.freeze_id,
+            freeze_label=row.freeze_label,
+            note=row.note,
+            pipeline_version=row.pipeline_version,
+            doc_count=row.doc_count,
+            chunk_count=row.chunk_count,
+            created_at=row.created_at,
+            sample_items=row.sample_items,
+        )
+
     def run_eval(self, request: EvalRunRequest) -> EvalRunResponse:
         with self._lock:
             if self._index is None:
@@ -311,6 +388,11 @@ class RagService:
             cases = self._eval_store.fetch_cases(request.case_ids)
             if not cases:
                 raise EvalDatasetEmptyError("评测集为空，请先调用 /rag/eval/dataset 写入样本")
+
+            # 有证据键时再加载现行 chunks，映射到当期 chunk_id
+            live_chunks = None
+            if any(case.evidence_keys for case in cases):
+                live_chunks = self._chunk_store.fetch_chunks(None)
 
             items: list[EvalMetricItem] = []
             resolved_top_ks: list[int] = []
@@ -321,13 +403,13 @@ class RagService:
                 retrieval = self._retrieve(
                     query=case.query_text,
                     top_k=top_k,
-                    filters=None,
+                    filters=case.filters,
                 )
                 latency_ms = int((perf_counter() - latency_start) * 1000)
                 retrieved_chunk_ids = [item.chunk_id for item in retrieval.contexts]
                 retrieved_texts = [item.chunk_text for item in retrieval.contexts]
                 metrics = compute_eval_metrics(
-                    case=case,
+                    case=self._prepare_eval_case(case, live_chunks),
                     retrieved_chunk_ids=retrieved_chunk_ids,
                     retrieved_texts=retrieved_texts,
                 )
@@ -429,7 +511,9 @@ class RagService:
         raw_results = retriever.retrieve(query_bundle)
         retrieve_ms = int((perf_counter() - retrieve_start) * 1000)
 
+        min_score = self._settings.min_score
         contexts: list[RetrievedContext] = []
+        matched_scores: list[float] = []
         for node_with_score in raw_results:
             metadata = dict(node_with_score.node.metadata or {})
             if not self._match_filters(metadata, filters):
@@ -441,12 +525,18 @@ class RagService:
             if not doc_id or not chunk_id or not chunk_text:
                 continue
 
+            score = float(node_with_score.score or 0.0)
+            matched_scores.append(score)
+            # 低相关过滤：低于阈值的候选直接丢弃
+            if score < min_score:
+                continue
+
             contexts.append(
                 RetrievedContext(
                     doc_id=doc_id,
                     chunk_id=chunk_id,
                     chunk_text=chunk_text,
-                    score=float(node_with_score.score or 0.0),
+                    score=score,
                     metadata=metadata,
                 )
             )
@@ -458,6 +548,7 @@ class RagService:
             embed_ms=embed_ms,
             retrieve_ms=retrieve_ms,
             retrieved_before_filter=len(raw_results),
+            top_score_before_min_score=max(matched_scores) if matched_scores else None,
         )
 
     def _record_query_trace(
@@ -470,9 +561,13 @@ class RagService:
         contexts: list[RetrievedContext],
         total_ms: int,
         error_code: str | None,
+        top_score_override: float | None = None,
     ) -> None:
         # 监控写库异常不得影响查询主流程，仅记录日志。
         score_stats = self._score_stats(contexts)
+        top_score = score_stats["top_score"]
+        if top_score is None and top_score_override is not None:
+            top_score = top_score_override
         item = QueryLogItem(
             query_text=request.query,
             top_k=request.top_k,
@@ -483,7 +578,7 @@ class RagService:
             retrieved_before_filter=retrieved_before_filter,
             retrieved_after_filter=retrieved_after_filter,
             is_empty_recall=retrieved_after_filter == 0,
-            top_score=score_stats["top_score"],
+            top_score=top_score,
             min_score_value=score_stats["min_score_value"],
             avg_score=score_stats["avg_score"],
             error_code=error_code,
@@ -529,15 +624,39 @@ class RagService:
         return max(value for value, count in counts.items() if count == max_count)
 
     @staticmethod
+    def _prepare_eval_case(case: EvalCaseRow, live_chunks: list[ChunkRow] | None) -> EvalCaseRow:
+        """将 evidence_keys 映射到当期 chunk_id，并合并进 relevant_chunk_ids。"""
+        if not case.evidence_keys or live_chunks is None:
+            return case
+        keys = [
+            EvidenceKeyData(
+                anchor_text=str(item.get("anchor_text") or ""),
+                doc_id=item.get("doc_id"),
+                content_hash=item.get("content_hash"),
+            )
+            for item in case.evidence_keys
+            if isinstance(item, dict)
+        ]
+        resolved = resolve_evidence_keys_to_chunk_ids(keys, live_chunks)
+        merged = merge_relevant_chunk_ids(case.relevant_chunk_ids, resolved)
+        return replace(case, relevant_chunk_ids=merged)
+
+    @staticmethod
     def _to_eval_case(row: EvalCaseRow) -> EvalCase:
+        evidence_keys = None
+        if row.evidence_keys:
+            evidence_keys = [EvidenceKey.model_validate(item) for item in row.evidence_keys]
         return EvalCase(
             case_id=row.case_id,
             query_text=row.query_text,
             relevant_chunk_ids=row.relevant_chunk_ids,
             expected_keywords=row.expected_keywords,
+            evidence_keys=evidence_keys,
             keyword_match_mode=row.keyword_match_mode,
             top_k=row.top_k,
             enabled=row.enabled,
+            expect_hit=row.expect_hit,
+            filters=row.filters,
         )
 
     @staticmethod

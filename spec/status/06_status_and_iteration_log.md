@@ -5,10 +5,12 @@
 
 ## 1. 当前状态
 
-- 核心接口已实现：`/rag/extract`、`/rag/chunks`（`doc_ids`）、`/rag/index/build`、`/rag/query`、`/rag/health` 及监控/测评接口
+- 核心接口已实现：`/rag/extract`、`/rag/chunks`（`doc_ids`）、`/rag/index/build`、`/rag/query`、`/rag/health` 及监控/测评/冻结接口
 - **抽取**：MinerU + 企业级清洗 + 表格门禁；`blocks` 含 `title`/`paragraph`/`list_item`/`table` 及 `page_idx`/`bbox`/`text_level`（见 `08`）
-- **切块正文**：长度约束 + 递归切分 + 标题粘性 + 表格 Markdown（见 `09`）
-- **切块 metadata**：`09` §3.6 已落地（编号优先章节栈、表前 title 同步；本地 PDF `category=pdf`）
+- **切块正文**：长度约束 + 递归切分 + 标题粘性 + 表格 Markdown；章节软上限（见 `09`）
+- **切块 metadata**：`09` §3.6 已落地；本地 PDF 默认 `category=pdf`，第二轮政策文档可用 `policy`/`ops`
+- **检索**：`min_score` 低相关过滤（默认 `0.5`）；可选元数据 `filters`
+- **测评集**：第一轮 baseline `run_id=8`；第二轮 baseline `run_id=11`（见 §5）
 - 自动化测试：须在 conda `rag-demo` 执行；仅 mock Embedding；测试库 `rag_demo_test`（见 `05`）
 - 业务库手工 curl 验收见操作手册
 
@@ -27,23 +29,13 @@
 ## 3. 已知差距
 
 - 当前向量索引为内存态（服务重启后需重新调用 `/rag/index/build`）
-- 回归用例 `rag_retrieval_empty_reg_001` 仍为已知差距（低相关结果过滤未实现）
 - 跨 block 合并时 `bbox` 常为 `null`（单块坐标策略）；高亮溯源能力有限
 - 旧文档若未重切，章节路径可能仍为扁平 2 层；改完代码后需再调 `/rag/chunks`
 - pytest 默认仅 mock Embedding；业务库手工联调见操作手册
-- **TODO — 构建高质量测评集第二轮（未完成清单）**（权威明细见 `07` §3.4.2「仍待完成」表）
-  - 已完成：必加 4 份语料 PDF + 生成脚本 + 手册第二轮入库 curl
-  - **未完成**：
-    1. L1 金标标注（P0）+ 稳定证据键；另建快照表、必要时手动打版（`07` §3.2.2，建表 DDL 已入 schema，接口未实现）
-    2. 长文压测题（`pdf-emission-long`）
-    3. 结构多样性题（`pdf-transport-xch`）
-    4. 负样本题
-    5. 多跳 / 组合证据题
-    6. 层级与效力题（指导意见 vs 2026 细则）
-    7. 同实体跨文档条件题
-    8. 权限/类目 filters（可选）
-    9. 种子扩写 + 第二轮 baseline 收口（不可与 `run_id=8` 混比）
-- **测评标注缺口**：现行业务种子仍为 L0 关键词，`avg_recall` 不可用
+- **测评 / 检索设计债（本版收官保留，详见 `07` §3.5）**：
+  1. **关键词/证据键匹配过脆**：Markdown 表格等结构化正文中，连续子串标注易与单元格分隔形式不一致，出现「已召回正确块仍判未命中」
+  2. **实体主导检索**：问句同时含「文档壳」与「答案实体」时，稠密检索易被实体带走而忽略文档约束（挂壳负样本暴露）
+- **测评标注**：种子以 L0 关键词 + L1 过渡 `evidence_keys` 为主；负样本用 `expect_hit=false`；低相关空召回已落地（`min_score=0.5`）
 
 ## 4. 监控与测评（已实现）
 
@@ -51,12 +43,12 @@
 - 监控（已实现）：
   - 接口：`GET /rag/metrics`
   - 数据表：`rag_query_logs`
-  - 能力：`/rag/query` 请求内同步埋点、失败查询同样写库、监控写库异常不影响查询响应
+  - 能力：`/rag/query` 请求内同步埋点、失败查询同样写库、监控写库异常不影响查询响应；`min_score` 过滤后空召回可回填阈值前最高分
 - 测评（已实现）：
-  - 接口：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`、`POST /rag/eval/run`、`GET /rag/eval/runs`
-  - 数据表：`rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items`
-  - 能力：评测集 upsert、离线批量检索测评、历史轮次查看
-  - 种子集：`spec/eval/eval_dataset.json`（**构建高质量测评集第一轮已完成**：同域干扰 + 异域噪声；50 条 / 十份 PDF；详见 `07` §3.4.1）
+  - 接口：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`、`POST /rag/eval/run`、`GET /rag/eval/runs`、切块冻结 API
+  - 数据表：`rag_eval_dataset`（含 `evidence_keys`/`expect_hit`/`filters`）、`rag_eval_runs`、`rag_eval_run_items`、冻结快照表
+  - 能力：评测集 upsert、离线批量检索测评、历史轮次查看、证据键映射、负样本与样本级 filters
+  - 种子集：`spec/eval/eval_dataset.json`（约 82 条 / 十四份 PDF；第二轮已收口，baseline 见 §5.2）
 - 测试状态：
   - 抽取/切块契约：7 条自动化用例已实现并通过（见 `05` §3.0）
   - 监控：4 条自动化用例已实现并通过（见 `05` §3.2）
@@ -95,18 +87,47 @@
 - **已知未命中（非 P0）**：`eval-obd-data-encoding`
 - **标注口径**：L0 关键词；须与 chunk **逐字一致**；非企业金标（L1 属第二轮）
 
-### 5.2 构建高质量测评集第二轮（进行中 · 出题未完）
+### 5.2 构建高质量测评集第二轮（已完成）
 
-- **已完成**：必加 4 份语料（长文 / 报表结构 / 原则 / 2026 细则），见 `07` §3.4.2 语料表
-- **未完成（TODO）**：与 `07` §3.4.2「仍待完成」表一致——L1 金标、各类出题（长文/结构/负样本/多跳/效力/同实体）、可选 filters、种子与 **第二轮 baseline** 收口
-- **当前仍沿用第一轮门禁**：`run_id=8`（§5.1）；第二轮未收口前不得宣称第二轮完成
-- **完成定义**：`07` 待办表清空 + 本节写入第二轮 baseline + §3 移除对应 TODO
+> 设计权威说明见 `07` §3.4.2。本节只保留门禁数值与已知未命中。不可与第一轮 `run_id=8` 直接混比（题量/口径不同）。
+
+#### 测评方向
+
+- 长文切块压测、结构多样性（大表/接口）、负样本、多跳组合证据、层级效力、同实体跨文档、权限/类目 filters
+- 工程配套：`evidence_keys`、冻结打版、`expect_hit`、样本级 `filters`、`min_score=0.5` 低相关空召回
+
+#### 门禁数值
+
+- **正式 baseline**：`run_id=11`（十四份 PDF 全量入库 + `min_score=0.5` 后）
+  - `avg_hit=0.927`，`avg_recall=0.892`，`avg_mrr=0.816`，`avg_latency_ms=190.3`，`top_k=10`，`dataset_size=82`
+- **主指标** `avg_hit`；辅指标 `avg_mrr` / `avg_recall`；延迟环比不单独阻断
+- **迭代门禁（第二轮口径）**：不低于 `run_id=11`
+- **第一轮子集回归**：同库全量 run 中第一轮 50 题仍应满足 §5.1（`hit≥0.98`；`run_id=11` 子集为 `0.980`）
+- **已知未命中（本版收官保留）**：
+  - 结构/编码判分脆：`eval-xch-field-vrd019`、`eval-xch-speed-close-rate`、`eval-obd-data-encoding`
+  - 挂壳负样本（实体主导）：`eval-neg-park-no-scrap-age`、`eval-neg-infosec-no-obd-port`、`eval-neg-health-no-retire-subsidy`
+  - 设计债表述见 `07` §3.5 / 上文 §3；不在此展开方案
+- **过程对照**：`run_id=9`（阈值前）、`run_id=10`（metadata 对齐后）可忽略作正式门禁
 
 ## 6. 迭代记录
 
+- 2026-07-24（**构建高质量测评集第二轮** · 收官）：
+  - 标定第二轮 baseline：`run_id=11`（`avg_hit=0.927`，`avg_mrr=0.816`，`top_k=10`，82 题）
+  - 设计债入库：关键词/证据键匹配过脆；实体主导检索（`07` §3.5）
+  - TODO-0～8 全部勾完；第一轮门禁 `run_id=8` 仍独立有效
+- 2026-07-24（低相关阈值）：
+  - `/rag/query` 与测评检索统一：`score < min_score`（默认 `0.5`，`RAG_MIN_SCORE`）丢弃；全不达标则 `contexts=[]`
+  - `rag_retrieval_empty_reg_001` 改为正向验收；trace 回显 `min_score` / `top_score_before_min_score`
+- 2026-07-23（第二轮 TODO-1～7）：
+  - 种子扩写约 32 题：长文压测、运政结构、负样本、多跳证据、效力冲突、同实体条件、filters
+  - 测评模型新增 `expect_hit` / `filters`；`run_eval` 透传样本 filters；指标支持负样本反转
+  - 手册十四份语料 curl 与 policy/ops metadata 约定
+- 2026-07-23（第二轮 TODO-0）：
+  - 落地 `evidence_keys`（表字段/模型/upsert/测评映射）与切块冻结 API（`chunk-freeze` 打版/列表/详情）
+  - 种子 50 条补充过渡 `evidence_keys`（锚点暂复用关键词）；正式证据句随后续出题补齐
 - 2026-07-23（测评切块冻结约定）：
   - 拍板：另建物理表 `rag_eval_chunk_freezes` / `rag_eval_chunk_snapshot_items`，**必要时手动打一版**；不用 VIEW
-  - 主路径仍为稳定证据键映射当期 chunks；快照用于门禁可复现（`07` §3.2.2；DDL 已写入 `mysql_schema.sql`，代码待第二轮落地）
+  - 主路径仍为稳定证据键映射当期 chunks；快照用于门禁可复现（`07` §3.2.2）
 - 2026-07-23（**构建高质量测评集第二轮** · 必加语料）：
   - 新增 4 份 PDF：长文手册（约 10 页）、运政交换报表规范（大表/续表/嵌套列表）、淘汰指导意见、2026 修订细则
   - 脚本 `scripts/generate_eval_round2_pdfs.py`；操作手册补充第二轮 extract/chunks curl

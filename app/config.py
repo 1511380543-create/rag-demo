@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     min_chunk_chars: int = 20
     # 同标题章节软上限：总长不超过时整节一块（可超过 chunk_size）
     section_soft_max: int = 1000
+    # 检索最低相似度：低于该分的 chunk 丢弃；全部低于则空召回（contexts=[]）
+    min_score: float = Field(default=0.5, alias="RAG_MIN_SCORE")
     index_name: str = "local_rag_index"
     mysql_host: str = Field(default="127.0.0.1", alias="MYSQL_HOST")
     mysql_port: int = Field(default=3306, alias="MYSQL_PORT")
@@ -46,6 +48,13 @@ class Settings(BaseSettings):
         if value <= 0 or value > 65535:
             raise ValueError("MySQL 端口必须在 1-65535 之间")
         return value
+
+    @field_validator("min_score")
+    @classmethod
+    def validate_min_score(cls, value: float) -> float:
+        if value < 0 or value > 1:
+            raise ValueError("RAG_MIN_SCORE 必须在 0-1 之间")
+        return float(value)
 
 
 @lru_cache(maxsize=1)

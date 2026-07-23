@@ -97,7 +97,7 @@
 | `rag_query_fail_topk_001` | integration | 非法 top_k | `top_k=0` 或负数 | `422` | 已执行-通过 | 返回 `422`，与预期一致 |
 | `rag_health_ok_001` | integration | 健康检查 | `GET /rag/health` | `200`；`status=ok`；含 `extracted_docs` / `indexed_docs` / `indexed_chunks` | 已执行-通过 | 返回 `200`，统计字段有效 |
 | `rag_retrieval_reg_001` | regression | 关键问答命中验证 | 固定 query + 固定语料 | 命中期望证据片段（关键词命中） | 已执行-通过 | 返回 `200`，召回文本命中 `11009` 与 `30s/30秒` 关键线索 |
-| `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]` | 已执行-预期失败 | 实际返回非空 `contexts`，当前实现缺少低相关阈值过滤（已在测试中 xfail 标记） |
+| `rag_retrieval_empty_reg_001` | regression | 低相关查询返回空召回 | 固定低相关 query + 固定语料 | `contexts=[]`；trace.`min_score=0.5` | 已实现 | `score < RAG_MIN_SCORE` 过滤 |
 
 ### 3.2 监控用例（已实现）
 
@@ -106,7 +106,7 @@
 
 | case_id | 类型 | 场景 | 输入 | 期望 | 执行状态 | 备注 |
 |---|---|---|---|---|---|---|
-| `rag_query_score_record_001` | integration | 查询分数被记录 | 正常查询后查内存监控日志 | `top_score/avg_score` 已写入 | 已执行-通过 | 本轮只记录不过滤 |
+| `rag_query_score_record_001` | integration | 查询分数被记录 | 正常查询后查内存监控日志 | `top_score/avg_score` 已写入 | 已执行-通过 | 分数参与 min_score 过滤并写监控 |
 | `rag_metrics_ok_001` | integration | 监控指标聚合 | 若干次查询后 `GET /rag/metrics` | `200`；`total_queries>0`；`empty_recall_rate` 在 `0-1` | 已执行-通过 | 校验聚合正确性 |
 | `rag_metrics_window_001` | integration | 时间窗口过滤 | 注入 10 分钟前日志 + 2 次近期查询；`GET /rag/metrics?window_minutes=5` | 全量 `total_queries=3`；窗口内 `total_queries=2` | 已执行-通过 | 窗口边界 |
 | `rag_metrics_fail_window_001` | integration | 非法窗口参数 | `window_minutes=0` 或负数 | `422` | 已执行-通过 | 边界校验 |
@@ -122,7 +122,12 @@
 | `rag_eval_dataset_upsert_001` | integration | 评测样本批量 upsert | `cases=[{case_id,query_text,expected_keywords}]` | `200`；`upserted_count>0` | 已执行-通过 | 同 `case_id` 覆盖 |
 | `rag_eval_dataset_list_001` | integration | 评测样本列表与 upsert 一致 | upsert 后 `GET /rag/eval/dataset` | `200`；`total` 与 `cases` 条数一致；字段与 upsert 请求一致 | 已执行-通过 | 覆盖读路径；同 `case_id` 覆盖后列表反映最新值 |
 | `rag_eval_dataset_fail_empty_001` | integration | 空样本数组 | `cases=[]` | `422` | 已执行-通过 | 边界校验 |
-| `rag_eval_dataset_fail_no_gt_001` | integration | 缺少 ground truth | 两类标注均缺失 | `422` | 已执行-通过 | 至少提供其一 |
+| `rag_eval_dataset_fail_no_gt_001` | integration | 缺少 ground truth | 三类标注均缺失 | `422` | 已执行-通过 | 至少提供其一 |
+| `rag_eval_dataset_evidence_keys_001` | integration | 仅 evidence_keys 写入 | `evidence_keys=[{doc_id,anchor_text}]` | `200`；列表回读一致 | 已执行-通过 | L1 过渡标注 |
+| `rag_eval_dataset_expect_hit_filters_001` | integration | 负样本与 filters 回读 | `expect_hit=false` + `filters` | `200`；列表字段一致 | 已实现 | 第二轮负样本/filters |
+| `rag_eval_metrics_unit_expect_no_hit_001` | unit | 负样本指标反转 | `expect_hit=false` 且召回含关键词 | `hit=0` | 已实现 | 与 §3.3 对齐 |
+| `rag_eval_chunk_freeze_ok_001` | integration | 切块冻结打版 | 先写入 chunk 再 freeze | `200`；列表/详情可读；重复标签 `409` | 已执行-通过 | 物理快照 |
+| `rag_eval_chunk_freeze_fail_empty_001` | integration | 无 chunks 打版 | 空库 freeze | `400` `NO_CHUNKS_FOR_FREEZE` | 已执行-通过 | 边界 |
 | `rag_eval_run_ok_001` | integration | 正常执行测评（固定语料） | OBD 单文档入库 + 建索引；样本 query 与 `rag_retrieval_reg_001` 一致；`expected_keywords=["11009","30s","30秒"]`；样本级 `top_k=10` | `200`；`run_id>0`；`avg_hit=1.0`；`avg_recall/avg_mrr` 在 `0-1`；`avg_latency_ms>=0`；`items` 逐条含 `retrieved_chunk_ids` | 已执行-通过 | 测试环境 hash 向量下关键线索需更大 top_k；`latency_ms` 不以 `0-1` 约束 |
 | `rag_eval_run_enabled_filter_001` | integration | 禁用样本默认不参与 | 写入 `enabled=true` 与 `enabled=false` 各 1 条；`POST /rag/eval/run` 不传 `case_ids` | `200`；`dataset_size=1`；仅执行 enabled 样本 | 已执行-通过 | 对应 `07` §3.2 样本筛选规则 |
 | `rag_eval_run_case_ids_override_001` | integration | 指定 case_ids 忽略 enabled | 写入 `enabled=false` 样本；`POST /rag/eval/run` 传对应 `case_ids` | `200`；`dataset_size=1`；该样本被执行 | 已执行-通过 | 传 `case_ids` 时不受 `enabled` 限制 |
@@ -138,15 +143,16 @@
 ### 3.4 业务测评集验收（离线，非 pytest）
 
 > 说明：本节与 §3.3 互补——§3.3 验证测评**系统**正确性（TDD）；本节定义业务**检索质量**验收（SDD 第一层）。  
-> **构建高质量测评集第一轮**（同域干扰 + 异域噪声）已完成：方向与优化见 `07` §3.4.1，门禁见 `06` §5.1。  
-> **构建高质量测评集第二轮**：必加语料已生成；**出题/L1/baseline 仍为 TODO**，清单见 `07` §3.4.2「仍待完成」与 `06` §3 / §5.2。
+> **构建高质量测评集第一轮**（同域干扰 + 异域噪声）已完成：见 `07` §3.4.1，门禁 `06` §5.1（`run_id=8`）。  
+> **构建高质量测评集第二轮**已完成：见 `07` §3.4.2，门禁 `06` §5.2（`run_id=11`）；设计债见 `07` §3.5。
 
 | 验收项 | 执行方式 | 期望 | 备注 |
 |---|---|---|---|
-| 种子集导入 | 十份 PDF 入库后 `POST /rag/eval/dataset` | `upserted_count=50` | 种子 `spec/eval/eval_dataset.json` |
+| 种子集导入 | 十四份 PDF 入库后 `POST /rag/eval/dataset` | `upserted_count` 与种子 `case_count` 一致（当前约 82） | 种子 `spec/eval/eval_dataset.json` |
 | 全量离线测评 | `POST /rag/eval/run`（**不传**请求级 `top_k`） | 回显 `top_k=10`；返回 hit/mrr/latency | 主口径样本 `top_k=10` |
-| P0 核心样本 | 见 `06` §5.1 | 逐条 `hit=1` | 发布前必查 |
-| 全量质量门槛 | 对比 `run_id=8` baseline | `avg_hit`、`avg_mrr` 不低于 0.98 / 0.910 | 语料或标注变更后须重标定 |
+| P0 核心样本 | 见 `06` §5.1 | 逐条 `hit=1` | 第一轮发布前必查 |
+| 第一轮质量门槛 | 对比 `run_id=8`（或全量 run 中第一轮 50 题子集） | `avg_hit`/`avg_mrr` 不低于 0.98 / 0.910 | 与第二轮全量分列 |
+| 第二轮质量门槛 | 对比 `run_id=11` baseline | `avg_hit`/`avg_mrr` 不低于 0.927 / 0.816 | 82 题全量；不可与 `run_id=8` 混比 |
 | 迭代记录 | 更新 `06` §5 / §6 | 记录 run_id 与指标 | |
 
 - 本验收**不纳入** `pytest` 默认门禁（依赖真实 embedding 与全量语料，执行成本高）

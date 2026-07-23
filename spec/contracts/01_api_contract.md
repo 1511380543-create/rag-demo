@@ -15,6 +15,9 @@
 - `GET /rag/eval/dataset`：列出评测样本
 - `POST /rag/eval/run`：执行一轮检索测评
 - `GET /rag/eval/runs`：查看历史评测轮次
+- `POST /rag/eval/chunk-freeze`：从现行 `rag_chunks` 手动打一版冻结快照
+- `GET /rag/eval/chunk-freezes`：列出冻结版
+- `GET /rag/eval/chunk-freezes/{freeze_id}`：查看冻结版详情（含样本 chunk）
 
 ## 2. 文档抽取入库 `POST /rag/extract`
 
@@ -115,8 +118,9 @@
   - `query: str`
   - `top_k: int`
   - `contexts: list[RetrievedContext]`
-  - `trace: dict[str, Any] | None`（可选调试信息，包含 `retrieved_before_filter`、`retrieved_after_filter`、`filters_applied`，并新增 `top_score`、`avg_score`、`embed_ms`、`retrieve_ms`、`total_ms` 等监控相关字段）
+  - `trace: dict[str, Any] | None`（可选调试信息，含 `retrieved_before_filter`、`retrieved_after_filter`、`filters_applied`、`min_score`、`top_score_before_min_score`、`top_score`、`avg_score`、`embed_ms`、`retrieve_ms`、`total_ms` 等）
 
+> 召回过滤：元数据 `filters` 之后，再丢弃 `score < min_score` 的候选（默认 `0.5`，环境变量 `RAG_MIN_SCORE`）；无一达标则 `contexts=[]`。`/rag/eval/run` 复用同一检索逻辑。
 ### 5.3 失败响应
 
 - `422`：`query` 为空、`top_k` 非法
@@ -213,13 +217,21 @@
   - `query_text: str`（必填，去空白后非空）
   - `relevant_chunk_ids: list[str] | None = None`（可选，chunk 级标注）
   - `expected_keywords: list[str] | None = None`（可选，关键词命中标注）
+  - `evidence_keys: list[EvidenceKey] | None = None`（可选，稳定证据键；测评前映射到当期 `rag_chunks.id`）
   - `keyword_match_mode: "any" | "all" = "any"`（可选，关键词匹配模式）
   - `top_k: int | None = None`（可选，样本级 `top_k`，范围 `1-20`）
   - `enabled: bool = True`（可选，是否参与评测）
+  - `expect_hit: bool = True`（可选；`false` 表示负样本：top_k 内出现标注证据则判失败）
+  - `filters: dict[str, Any] | None = None`（可选，样本级元数据过滤，与 `/rag/query.filters` 同语义）
+- `EvidenceKey`
+  - `doc_id: str | None = None`（可选，限制匹配文档）
+  - `anchor_text: str | None = None`（可选，正文子串锚点）
+  - `content_hash: str | None = None`（可选，与快照/元数据 hash 对齐）
+  - 约束：每项须提供 `anchor_text` 或 `content_hash` 至少其一
 - `EvalDatasetUpsertRequest`
   - `cases: list[EvalCase]`（必填，最少 `1` 条）
 
-约束：`relevant_chunk_ids` 与 `expected_keywords` 至少提供其一。
+约束：`relevant_chunk_ids`、`expected_keywords`、`evidence_keys` 至少提供其一。
 
 ### 10.2 成功响应 `200`
 
@@ -228,7 +240,7 @@
 
 ### 10.3 失败响应
 
-- `422`：样本数组为空、字段非法、两类标注均缺失
+- `422`：样本数组为空、字段非法、三类标注均缺失
 - `500`：写库异常（错误码 `EVAL_DATASET_UPSERT_ERROR`）
 
 ## 11. 评测样本列表 `GET /rag/eval/dataset`
@@ -253,6 +265,12 @@
   - `note: str | None = None`（可选，本轮备注）
 
 > 单条样本实际检索 `top_k` 优先级：请求级 `top_k` > 样本级 `top_k` > 默认 `3`。
+>
+> 若样本含 `evidence_keys`，测评前会映射到当期 `rag_chunks.id` 并与 `relevant_chunk_ids` 合并后再算指标。
+>
+> 若样本含 `filters`，测评检索启用该过滤（不经过 `/rag/query`，仍不写监控日志）。
+>
+> 若 `expect_hit=false`（负样本）：top_k 内未出现标注证据则 `hit=1`，出现则 `hit=0`；`recall`/`mrr` 记 0。
 
 ### 12.2 成功响应 `200`
 
@@ -284,6 +302,7 @@
 
 ## 13. 评测历史 `GET /rag/eval/runs`
 
+
 ### 13.1 请求参数
 
 - `limit: int = 20`（可选，返回条数，范围 `1-100`）
@@ -308,3 +327,51 @@
 
 - `422`：`limit` 非法
 - `500`：评测历史读取异常（错误码 `EVAL_RUNS_READ_ERROR`）
+
+## 14. 切块冻结打版 `POST /rag/eval/chunk-freeze`
+
+从现行 `rag_chunks` 拷贝生成一版物理快照（见 `07` §3.2.2）。不改变现行索引构建路径。
+
+### 14.1 请求模型
+
+- `ChunkFreezeCreateRequest`
+  - `freeze_label: str`（必填，唯一标签）
+  - `note: str | None = None`
+  - `pipeline_version: str | None = None`
+  - `doc_ids: list[str] | None = None`（可选；为空则冻结全部现行 chunks）
+
+### 14.2 成功响应 `200`
+
+- `ChunkFreezeCreateResponse`：`freeze_id` / `freeze_label` / `note` / `pipeline_version` / `doc_count` / `chunk_count` / `created_at`
+
+### 14.3 失败响应
+
+- `400`：现行 chunks 为空（`NO_CHUNKS_FOR_FREEZE`）
+- `409`：标签重复（`DUPLICATE_FREEZE_LABEL`）
+- `422`：参数非法
+- `500`：打版异常（`CHUNK_FREEZE_CREATE_ERROR`）
+
+## 15. 切块冻结列表 `GET /rag/eval/chunk-freezes`
+
+### 15.1 查询参数
+
+- `limit: int = 20`（范围 `1-100`）
+
+### 15.2 成功响应 `200`
+
+- `ChunkFreezeListResponse`：`freezes` / `total`
+
+### 15.3 失败响应
+
+- `500`：`CHUNK_FREEZE_LIST_ERROR`
+
+## 16. 切块冻结详情 `GET /rag/eval/chunk-freezes/{freeze_id}`
+
+### 16.1 成功响应 `200`
+
+- `ChunkFreezeDetailResponse`：汇总字段 + `sample_items`（默认最多 5 条预览）
+
+### 16.2 失败响应
+
+- `404`：`CHUNK_FREEZE_NOT_FOUND`
+- `500`：`CHUNK_FREEZE_READ_ERROR`

@@ -143,14 +143,39 @@ class MetricsResponse(BaseModel):
     avg_top_score: float
 
 
+class EvidenceKey(BaseModel):
+    """稳定证据键：跨重切映射到当期 chunk_id（见 07 §3.2.2）。"""
+
+    anchor_text: str | None = None
+    doc_id: str | None = Field(default=None, min_length=1, max_length=128)
+    content_hash: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_key_body(self) -> "EvidenceKey":
+        anchor = (self.anchor_text or "").strip()
+        content_hash = (self.content_hash or "").strip()
+        if not anchor and not content_hash:
+            raise ValueError("evidence_keys 每项须提供 anchor_text 或 content_hash")
+        self.anchor_text = anchor or None
+        self.content_hash = content_hash or None
+        if self.doc_id is not None:
+            self.doc_id = self.doc_id.strip()
+        return self
+
+
 class EvalCase(BaseModel):
     case_id: str = Field(min_length=1, max_length=128)
     query_text: str = Field(min_length=1)
     relevant_chunk_ids: list[str] | None = None
     expected_keywords: list[str] | None = None
+    evidence_keys: list[EvidenceKey] | None = None
     keyword_match_mode: Literal["any", "all"] = "any"
     top_k: int | None = Field(default=None, ge=1, le=20)
     enabled: bool = True
+    # True：正样本期望命中；False：负样本，期望 top_k 内不出现标注证据
+    expect_hit: bool = True
+    # 样本级 filters，测评检索时生效（与 QueryRequest.filters 同语义）
+    filters: dict[str, Any] | None = None
 
     @field_validator("case_id", "query_text")
     @classmethod
@@ -173,11 +198,20 @@ class EvalCase(BaseModel):
             normalized.append(cleaned)
         return normalized
 
+    @field_validator("filters")
+    @classmethod
+    def validate_filters(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("filters 必须是对象")
+        return value
+
     @model_validator(mode="after")
     def validate_ground_truth(self) -> "EvalCase":
-        # 两类标注至少提供其一，否则无法判定命中。
-        if not self.relevant_chunk_ids and not self.expected_keywords:
-            raise ValueError("relevant_chunk_ids 与 expected_keywords 至少提供其一")
+        # 三类标注至少提供其一。
+        if not self.relevant_chunk_ids and not self.expected_keywords and not self.evidence_keys:
+            raise ValueError("relevant_chunk_ids、expected_keywords、evidence_keys 至少提供其一")
         return self
 
 
@@ -192,6 +226,57 @@ class EvalDatasetUpsertResponse(BaseModel):
 class EvalDatasetListResponse(BaseModel):
     cases: list[EvalCase]
     total: int
+
+
+class ChunkFreezeCreateRequest(BaseModel):
+    freeze_label: str = Field(min_length=1, max_length=128)
+    note: str | None = Field(default=None, max_length=255)
+    pipeline_version: str | None = Field(default=None, max_length=64)
+    doc_ids: list[str] | None = None
+
+    @field_validator("freeze_label")
+    @classmethod
+    def validate_label(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("freeze_label 不能为空白")
+        return cleaned
+
+    @field_validator("doc_ids")
+    @classmethod
+    def validate_doc_ids(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for item in value:
+            cleaned = item.strip()
+            if not cleaned:
+                raise ValueError("doc_ids 中不允许出现空字符串")
+            normalized.append(cleaned)
+        return normalized
+
+
+class ChunkFreezeSummary(BaseModel):
+    freeze_id: int
+    freeze_label: str
+    note: str | None
+    pipeline_version: str | None
+    doc_count: int
+    chunk_count: int
+    created_at: str
+
+
+class ChunkFreezeCreateResponse(ChunkFreezeSummary):
+    pass
+
+
+class ChunkFreezeListResponse(BaseModel):
+    freezes: list[ChunkFreezeSummary]
+    total: int
+
+
+class ChunkFreezeDetailResponse(ChunkFreezeSummary):
+    sample_items: list[dict]
 
 
 class EvalRunRequest(BaseModel):

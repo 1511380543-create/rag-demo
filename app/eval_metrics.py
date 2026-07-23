@@ -60,18 +60,24 @@ def compute_eval_metrics(
         for chunk_id, chunk_text in zip(retrieved_chunk_ids, retrieved_texts, strict=True)
     ]
 
-    hit = 1 if any(relevant_flags) else 0
+    found_relevant = any(relevant_flags)
+    # 负样本：top_k 内未出现标注证据才算通过
+    if case.expect_hit:
+        hit = 1 if found_relevant else 0
+    else:
+        hit = 0 if found_relevant else 1
 
     recall = 0.0
-    if case.relevant_chunk_ids:
+    if case.expect_hit and case.relevant_chunk_ids:
         relevant_set = set(case.relevant_chunk_ids)
         matched = sum(1 for chunk_id in retrieved_chunk_ids if chunk_id in relevant_set)
         recall = matched / len(relevant_set)
 
     mrr = 0.0
-    for index, is_relevant in enumerate(relevant_flags, start=1):
-        if is_relevant:
-            mrr = 1.0 / index
-            break
+    if case.expect_hit:
+        for index, is_relevant in enumerate(relevant_flags, start=1):
+            if is_relevant:
+                mrr = 1.0 / index
+                break
 
     return EvalMetricsResult(hit=hit, recall=recall, mrr=mrr)
