@@ -313,8 +313,10 @@ class RagService:
                 raise EvalDatasetEmptyError("评测集为空，请先调用 /rag/eval/dataset 写入样本")
 
             items: list[EvalMetricItem] = []
+            resolved_top_ks: list[int] = []
             for case in cases:
                 top_k = self._resolve_eval_top_k(request.top_k, case.top_k)
+                resolved_top_ks.append(top_k)
                 latency_start = perf_counter()
                 retrieval = self._retrieve(
                     query=case.query_text,
@@ -346,7 +348,8 @@ class RagService:
             avg_recall = sum(item.recall for item in items) / dataset_size
             avg_mrr = sum(item.mrr for item in items) / dataset_size
             avg_latency_ms = sum(item.latency_ms for item in items) / dataset_size
-            run_top_k = request.top_k if request.top_k is not None else 3
+            # 回显本轮实际检索窗口，避免未传请求级 top_k 时误记为默认 3
+            run_top_k = self._summarize_run_top_k(request.top_k, resolved_top_ks)
 
             run_id = self._eval_store.insert_run(
                 dataset_size=dataset_size,
@@ -508,6 +511,22 @@ class RagService:
         if case_top_k is not None:
             return case_top_k
         return 3
+
+    @staticmethod
+    def _summarize_run_top_k(request_top_k: int | None, resolved_top_ks: list[int]) -> int:
+        """汇总本轮写入 rag_eval_runs.top_k 的回显值。
+
+        有请求级覆盖时记请求值；否则记各样本实际 top_k 的众数（并列取较大值）。
+        """
+        if request_top_k is not None:
+            return request_top_k
+        if not resolved_top_ks:
+            return 3
+        counts: dict[int, int] = {}
+        for value in resolved_top_ks:
+            counts[value] = counts.get(value, 0) + 1
+        max_count = max(counts.values())
+        return max(value for value, count in counts.items() if count == max_count)
 
     @staticmethod
     def _to_eval_case(row: EvalCaseRow) -> EvalCase:

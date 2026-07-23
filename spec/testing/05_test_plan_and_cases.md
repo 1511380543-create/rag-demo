@@ -138,15 +138,16 @@
 ### 3.4 业务测评集验收（离线，非 pytest）
 
 > 说明：本节与 §3.3 互补——§3.3 验证测评**系统**正确性（TDD）；本节定义业务**检索质量**验收（SDD 第一层）。  
-> 指标规则见 `07` §3；baseline 与门禁见 `06` §5；种子数据见 `spec/eval/eval_dataset.json`。
+> **构建高质量测评集第一轮**（同域干扰 + 异域噪声）已完成：方向与优化见 `07` §3.4.1，门禁见 `06` §5.1。  
+> **构建高质量测评集第二轮**为 TODO，见 `07` §3.4.2 / `06` §5.2。
 
 | 验收项 | 执行方式 | 期望 | 备注 |
 |---|---|---|---|
-| 种子集导入 | 三份 PDF：`/rag/extract` → `/rag/chunks` → `/rag/index/build`；再 `POST /rag/eval/dataset` 导入 JSON | `upserted_count=18` | 同 `case_id` 可覆盖更新 |
-| 全量离线测评 | `POST /rag/eval/run`，`note` 标注轮次 | 返回 `avg_hit/avg_mrr/avg_latency_ms` | 不传 `top_k` 时各样本按自身或默认 `3` 执行 |
-| P0 核心样本 | `POST /rag/eval/run` 传 `case_ids`（见 `06` §5） | 逐条 `hit=1` | 发布前必查 |
-| 全量质量门槛 | 对比 `GET /rag/eval/runs` 与 baseline（`run_id=3`） | `avg_hit`、`avg_mrr` 不低于 baseline | 流程层验收，接口不自动拦截 |
-| 迭代记录 | 更新 `06` §5 | 记录 `run_id`、`avg_hit`、`avg_mrr`、`note` | 支持前后对比 |
+| 种子集导入 | 十份 PDF 入库后 `POST /rag/eval/dataset` | `upserted_count=50` | 种子 `spec/eval/eval_dataset.json` |
+| 全量离线测评 | `POST /rag/eval/run`（**不传**请求级 `top_k`） | 回显 `top_k=10`；返回 hit/mrr/latency | 主口径样本 `top_k=10` |
+| P0 核心样本 | 见 `06` §5.1 | 逐条 `hit=1` | 发布前必查 |
+| 全量质量门槛 | 对比 `run_id=8` baseline | `avg_hit`、`avg_mrr` 不低于 0.98 / 0.910 | 语料或标注变更后须重标定 |
+| 迭代记录 | 更新 `06` §5 / §6 | 记录 run_id 与指标 | |
 
 - 本验收**不纳入** `pytest` 默认门禁（依赖真实 embedding 与全量语料，执行成本高）
 - 检索链路变更（切分、embedding、top_k 策略）后必须重跑并更新 `06` baseline

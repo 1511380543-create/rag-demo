@@ -1,14 +1,34 @@
 {
-  "description": "基于 docs/ 下三份 PDF 构造的离线检索测评集，通过 POST /rag/eval/dataset 导入。关键词标注优先使用语料内唯一锚点短语；需同时命中多个词时使用 keyword_match_mode=all。",
+  "description": "构建高质量测评集第一轮（已完成）。方向：同域干扰 + 异域噪声。规模：docs/ 十份虚拟 PDF，50 条样本，统一 top_k=10。标注：L0 expected_keywords（过渡，非企业金标）。正式 baseline：06 §5.1 run_id=8。方向与优化说明：07 §3.4.1；第二轮 TODO：07 §3.4.2。",
+  "iteration": "构建高质量测评集第一轮",
+  "focus": [
+    "同域干扰",
+    "异域噪声"
+  ],
   "prerequisites": [
-    "三份 PDF 均已通过 /rag/chunks 入库",
+    "十份 PDF 均已通过 /rag/extract → /rag/chunks 入库",
     "已通过 /rag/index/build 构建索引"
+  ],
+  "doc_ids": [
+    "pdf-obd-809",
+    "pdf-emission-std",
+    "pdf-heavy-diesel-exempt",
+    "pdf-guosi-subsidy",
+    "pdf-gasoline-inspect",
+    "pdf-nev-monitor",
+    "pdf-danger-monitor",
+    "pdf-vehicle-health-xch",
+    "pdf-infosec-handbook",
+    "pdf-park-access"
   ],
   "cases": [
     {
       "case_id": "eval-obd-port-heartbeat",
       "query_text": "JT/T 809 协议默认通信端口和心跳周期是多少？",
-      "expected_keywords": ["11009", "心跳周期"],
+      "expected_keywords": [
+        "11009",
+        "心跳周期"
+      ],
       "keyword_match_mode": "all",
       "top_k": 10,
       "enabled": true
@@ -16,123 +36,450 @@
     {
       "case_id": "eval-obd-fault-report-id",
       "query_text": "OBD 车辆故障码上报对应的报文 ID 是什么？",
-      "expected_keywords": ["0x6002"],
-      "top_k": 5,
+      "expected_keywords": [
+        "0x6002"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-obd-heartbeat-msg-id",
       "query_text": "809 协议中心跳报文和心跳应答的报文 ID 分别是什么？",
-      "expected_keywords": ["0x1005/0x1006"],
-      "top_k": 5,
+      "expected_keywords": [
+        "0x1005/0x1006"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-obd-transport-protocol",
       "query_text": "JT/T 809 协议使用什么传输协议？是否支持 UDP？",
-      "expected_keywords": ["不支持UDP"],
-      "top_k": 5,
+      "expected_keywords": [
+        "不支持UDP"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-obd-work-data-report",
       "query_text": "车辆 OBD 工况数据上报报文的指令 ID 是什么？",
-      "expected_keywords": ["0x6001"],
-      "top_k": 5,
+      "expected_keywords": [
+        "0x6001"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-obd-data-encoding",
       "query_text": "809 协议中文和车辆信息采用什么编码格式？",
-      "expected_keywords": ["GB2312编码"],
-      "top_k": 5,
+      "expected_keywords": [
+        "GB2312编码"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-obd-offline-cache",
       "query_text": "OBD 设备离线时本地缓存容量至少多少条？",
-      "expected_keywords": ["缓存容量不少于1000"],
-      "top_k": 5,
+      "expected_keywords": [
+        "缓存容量不少于1000"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-emission-scope",
       "query_text": "国三排放标准柴油机动车报废管理标准的适用范围是什么？",
-      "expected_keywords": ["第五条 车型分类适用范围"],
-      "top_k": 5,
+      "expected_keywords": [
+        "第五条车型分类适用范围"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-emission-effective-date",
       "query_text": "国三柴油车报废管理标准自何时起施行？",
-      "expected_keywords": ["本标准自2026年07月01日起"],
-      "top_k": 5,
+      "expected_keywords": [
+        "本标准自2026年07月01日起"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-emission-force-scrap-age-operating",
       "query_text": "国三中重型营运柴油货车强制报废的使用年限是多少？",
-      "expected_keywords": ["中重型营运柴油货车", "使用年限满8年"],
+      "expected_keywords": [
+        "中重型营运柴油货车",
+        "使用年限满8年"
+      ],
       "keyword_match_mode": "all",
-      "top_k": 5,
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-emission-mileage-light",
       "query_text": "轻型国三柴油车累计行驶里程达到多少公里应强制报废？",
-      "expected_keywords": ["60万公里"],
-      "top_k": 5,
+      "expected_keywords": [
+        "60万公里"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-emission-subsidy-heavy-operating",
       "query_text": "国三中重型营运柴油货车提前报废的单车补贴标准是多少？",
-      "expected_keywords": ["单车补贴12000-20000元"],
-      "top_k": 5,
+      "expected_keywords": [
+        "单车补贴12000-20000元"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-emission-danger-truck-age",
       "query_text": "国三柴油危险品运输车辆强制报废的使用年限是多少？",
-      "expected_keywords": ["危险品运输车辆", "使用年限满7年"],
+      "expected_keywords": [
+        "危险品运输车辆",
+        "使用年限满7年"
+      ],
       "keyword_match_mode": "all",
-      "top_k": 5,
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-heavy-diesel-scope-mass",
       "query_text": "重型柴油车免年检手册适用的车辆总质量门槛是多少？",
-      "expected_keywords": ["总质量3.5吨及以上"],
-      "top_k": 5,
+      "expected_keywords": [
+        "总质量3.5吨及以上"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-heavy-diesel-obd-terminal",
       "query_text": "申请重型柴油车免年检需要安装什么车载终端？",
-      "expected_keywords": ["车载终端（OBD终端）"],
-      "top_k": 5,
+      "expected_keywords": [
+        "车载终端(OBD终端)"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-heavy-diesel-data-rate",
       "query_text": "免年检车辆检验周期内数据传输有效率要求不低于多少？",
-      "expected_keywords": ["数据传输有效率不低于98%"],
-      "top_k": 5,
+      "expected_keywords": [
+        "数据传输有效率不低于98%"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-heavy-diesel-revoke-over-emission",
       "query_text": "免检车辆在什么情况下会立即撤销免年检资格？",
-      "expected_keywords": ["立即撤销当期免年检资格"],
-      "top_k": 5,
+      "expected_keywords": [
+        "立即撤销当期免年检资格"
+      ],
+      "top_k": 10,
       "enabled": true
     },
     {
       "case_id": "eval-heavy-diesel-exempt-boundary",
       "query_text": "重型柴油车免年检具体豁免了哪些检验项目？",
-      "expected_keywords": ["豁免年度尾气排放上线检验"],
-      "top_k": 5,
+      "expected_keywords": [
+        "豁免年度尾气排放上线检验"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-guosi-doc-no",
+      "query_text": "国四柴油货车淘汰补贴实施细则的发文文号是什么？",
+      "expected_keywords": [
+        "环发〔2026〕58号"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-guosi-effective-date",
+      "query_text": "国四柴油货车淘汰补贴实施细则自何时起施行？",
+      "expected_keywords": [
+        "自2026年09月15日起施行"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-guosi-age-operating",
+      "query_text": "国四中重型营运柴油货车使用年限满多少年应启动淘汰？",
+      "expected_keywords": [
+        "国四中重型营运柴油货车使用年限满10年"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-guosi-mileage-light",
+      "query_text": "轻型国四柴油车累计行驶里程达到多少应强制淘汰？",
+      "expected_keywords": [
+        "累计行驶里程达到80万公里"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-guosi-subsidy-heavy",
+      "query_text": "国四中重型营运柴油货车提前淘汰的单车补贴标准是多少？",
+      "expected_keywords": [
+        "单车补贴8000-15000元"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-gasoline-scope-mass",
+      "query_text": "轻型汽油车年检排放检测规程适用的车辆总质量上限是多少？",
+      "expected_keywords": [
+        "总质量不超过3500千克的轻型汽油车"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-gasoline-idle-duration",
+      "query_text": "轻型汽油车怠速法检测时长最少要求多少秒？",
+      "expected_keywords": [
+        "怠速法检测时长不少于90秒"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-gasoline-high-idle-rpm",
+      "query_text": "双怠速法高怠速转速范围是多少？",
+      "expected_keywords": [
+        "双怠速法高怠速转速范围2500±200转/分"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-gasoline-calib-cycle",
+      "query_text": "气体分析仪设备校准周期最长多少天？",
+      "expected_keywords": [
+        "设备校准周期不超过30个自然日"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-gasoline-retest-interval",
+      "query_text": "轻型汽油车排放检验不合格后复检间隔最少多久？",
+      "expected_keywords": [
+        "不合格复检间隔不少于24小时"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-nev-protocol",
+      "query_text": "新能源汽车远程监控平台接入支持哪种数据传输协议？",
+      "expected_keywords": [
+        "仅支持MQTT over TLS"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-nev-port",
+      "query_text": "新能源汽车远程监控平台正式接入端口是多少？",
+      "expected_keywords": [
+        "平台接入端口9443"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-nev-heartbeat",
+      "query_text": "新能源汽车车载终端心跳周期是多少？",
+      "expected_keywords": [
+        "终端心跳周期为60秒"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-nev-work-msg-id",
+      "query_text": "新能源车实时工况数据上报的报文指令 ID 是什么？",
+      "expected_keywords": [
+        "报文指令 ID 为0xA101"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-nev-offline-cache",
+      "query_text": "新能源车终端离线时本地缓存至少多少条？",
+      "expected_keywords": [
+        "本地缓存不少于5000条"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-danger-track-interval",
+      "query_text": "危险品道路运输车辆轨迹回传间隔要求是多少？",
+      "expected_keywords": [
+        "轨迹回传间隔不超过30秒"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-danger-retain-days",
+      "query_text": "危险品车辆监控平台轨迹数据至少保存多久？",
+      "expected_keywords": [
+        "保存轨迹数据不少于180天"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-danger-overspeed-threshold",
+      "query_text": "危险品运输超速报警的频率阈值是什么？",
+      "expected_keywords": [
+        "超速报警阈值阈值为同一路段连续3次超速"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-danger-scrap-age",
+      "query_text": "危险品运输车辆强制报废使用年限是多少年？",
+      "expected_keywords": [
+        "危险品运输车辆强制报废使用年限满8年"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-danger-doc-no",
+      "query_text": "危险品道路运输车辆动态监控管理规定的发文文号是什么？",
+      "expected_keywords": [
+        "交运规〔2026〕11号"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-health-encoding",
+      "query_text": "机动车维修电子健康档案数据交换采用什么报文编码？",
+      "expected_keywords": [
+        "数据交换报文编码采用UTF-8"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-health-sync-path",
+      "query_text": "健康档案同步接口路径是什么？",
+      "expected_keywords": [
+        "/v1/vehicle-health/sync"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-health-batch-limit",
+      "query_text": "健康档案单次批量上传上限是多少条？",
+      "expected_keywords": [
+        "单次批量上传上限200条"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-health-retry-backoff",
+      "query_text": "健康档案接口网络失败时重试退避基数是多少？",
+      "expected_keywords": [
+        "重试退避基数为5秒"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-health-retain-years",
+      "query_text": "机动车维修电子健康档案保留期限至少多少年？",
+      "expected_keywords": [
+        "档案保留期限不少于6年"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-infosec-secret-export",
+      "query_text": "机密级文档外发需要什么审批？",
+      "expected_keywords": [
+        "机密级文档外发须经信息安全委员会双人审批"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-infosec-password-len",
+      "query_text": "业务系统登录密码最短长度要求是多少？",
+      "expected_keywords": [
+        "密码最短长度不少于12位"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-infosec-incident-sla",
+      "query_text": "安全事件发现后上报时限是多久？",
+      "expected_keywords": [
+        "安全事件上报时限为发现后2小时内"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-park-reserve-lead",
+      "query_text": "智慧园区访客需要提前多久在线预约？",
+      "expected_keywords": [
+        "提前至少4小时在线预约"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-park-passcode-expiry",
+      "query_text": "园区临时通行码有效期到什么时候？",
+      "expected_keywords": [
+        "临时通行码有效期为当日24时前"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-park-lock-threshold",
+      "query_text": "门禁刷卡失败连续多少次会锁定？",
+      "expected_keywords": [
+        "门禁刷卡失败连续5次锁定"
+      ],
+      "top_k": 10,
+      "enabled": true
+    },
+    {
+      "case_id": "eval-park-speed-limit",
+      "query_text": "智慧园区主干道限速是多少？",
+      "expected_keywords": [
+        "园区主干道限速20公里/小时"
+      ],
+      "top_k": 10,
       "enabled": true
     }
-  ]
+  ],
+  "eval_top_k_default": 10,
+  "status": "completed",
+  "baseline_run_id": 8
 }

@@ -31,10 +31,12 @@
 - 跨 block 合并时 `bbox` 常为 `null`（单块坐标策略）；高亮溯源能力有限
 - 旧文档若未重切，章节路径可能仍为扁平 2 层；改完代码后需再调 `/rag/chunks`
 - pytest 默认仅 mock Embedding；业务库手工联调见操作手册
+- **TODO — 构建高质量测评集第二轮**（清单见 `07` §3.4.2）
+- **测评标注缺口**：第一轮种子为 L0 关键词，`avg_recall` 不可用；L1 `relevant_chunk_ids` 待第二轮
 
 ## 4. 监控与测评（已实现）
 
-- 设计状态：以 `spec/architecture/07_observability_and_eval.md` 为准
+- 设计状态：以 `spec/architecture/07_observability_and_eval.md` 为准（含 §3.4 两轮测评集建设方向）
 - 监控（已实现）：
   - 接口：`GET /rag/metrics`
   - 数据表：`rag_query_logs`
@@ -43,7 +45,7 @@
   - 接口：`POST /rag/eval/dataset`、`GET /rag/eval/dataset`、`POST /rag/eval/run`、`GET /rag/eval/runs`
   - 数据表：`rag_eval_dataset`、`rag_eval_runs`、`rag_eval_run_items`
   - 能力：评测集 upsert、离线批量检索测评、历史轮次查看
-  - 种子集：`spec/eval/eval_dataset.json`（18 条）
+  - 种子集：`spec/eval/eval_dataset.json`（**构建高质量测评集第一轮已完成**：同域干扰 + 异域噪声；50 条 / 十份 PDF；详见 `07` §3.4.1）
 - 测试状态：
   - 抽取/切块契约：7 条自动化用例已实现并通过（见 `05` §3.0）
   - 监控：4 条自动化用例已实现并通过（见 `05` §3.2）
@@ -51,16 +53,50 @@
 
 ## 5. 测评 baseline 与门禁
 
-- **语料**：`docs/` 下三份 PDF；种子集 `spec/eval/eval_dataset.json`（18 条）
-- **导入**：`/rag/extract` → `/rag/chunks` → `/rag/index/build` 后，`POST /rag/eval/dataset` 导入 JSON
-- **baseline**（`run_id=3`）：`avg_hit=0.333`，`avg_mrr=0.333`，`avg_latency_ms=186.5`
-- **主指标**：`avg_hit`；辅指标：`avg_mrr`；性能观测：`avg_latency_ms`（环比，不单独阻断）
-- **迭代门禁**：`avg_hit`、`avg_mrr` 不低于 baseline
-- **P0 样本**（发布前逐条 `hit=1`）：`eval-obd-port-heartbeat`、`eval-obd-fault-report-id`、`eval-emission-scope`、`eval-heavy-diesel-obd-terminal`、`eval-heavy-diesel-data-rate`
-- **标注要点**：用语料内唯一锚点短语；多词共现设 `keyword_match_mode=all`
+### 5.1 构建高质量测评集第一轮（已完成）
+
+> 设计权威说明见 `07` §3.4.1。本节只保留门禁数值与验收要点。
+
+#### 测评方向
+
+- **同域干扰**：近义/近场景文档挤占 top_k，检验是否串文档
+- **异域噪声**：无关制度文档，检验是否污染召回窗
+
+#### 本轮优化摘要
+
+| 项 | 内容 |
+|---|---|
+| 语料 / 题量 | 3 份 18 题 → **10 份 50 题** |
+| 窗口 | 样本统一 **`top_k=10`** |
+| 回显 | 修复 runs.`top_k` 误记为 3 |
+| 锚点 | 纠正「题其实召回对了、却因关键词与 chunk 字不完全一致被判未命中」（如空格、全角括号） |
+| 切块（同期） | 章节软上限、续块带标题、软边界硬切 |
+| 配套 | 生成脚本、操作手册、spec 同步 |
+
+#### 门禁数值
+
+- **正式 baseline**：`run_id=8`（用户重跑；与 `run_id=7` 指标一致）
+  - `avg_hit=0.98`，`avg_mrr=0.910`，`avg_latency_ms=187.1`，`top_k=10`
+- **历史对照**（扩容前 18 条，`run_id=3`）：`avg_hit=0.333`，`avg_mrr=0.333`（不可与现口径直接对比）
+- **主指标** `avg_hit`；辅指标 `avg_mrr`；延迟环比不单独阻断
+- **迭代门禁**：不低于 `run_id=8`
+- **P0**（须 `hit=1`）：`eval-obd-port-heartbeat`、`eval-obd-fault-report-id`、`eval-emission-scope`、`eval-heavy-diesel-obd-terminal`、`eval-heavy-diesel-data-rate`、`eval-guosi-subsidy-heavy`、`eval-nev-heartbeat`、`eval-danger-scrap-age`（`run_id=8` 已全中）
+- **已知未命中（非 P0）**：`eval-obd-data-encoding`
+- **标注口径**：L0 关键词；须与 chunk **逐字一致**；非企业金标（L1 属第二轮）
+
+### 5.2 构建高质量测评集第二轮（TODO）
+
+- **状态**：未开始；清单见 `07` §3.4.2
+- **完成定义**：种子/手册更新 + 新 baseline 写入 §5 + 从 §3 移除第二轮 TODO
 
 ## 6. 迭代记录
 
+- 2026-07-23（**构建高质量测评集第一轮** · 完成）：
+  - **方向**：同域干扰 + 异域噪声
+  - **优化**：语料 10 份 / 50 题；`top_k=10`；runs.top_k 回显修复；校正测评关键词与 chunk 不一致导致的误判未命中（空格/全角括号等）；同期章节软上限等切块增强
+  - **baseline**：`run_id=8`（`avg_hit=0.98`，`avg_mrr=0.910`，`top_k=10`）；P0 全中；仅余 `eval-obd-data-encoding`
+  - 设计写入 `07` §3.4.1；**第二轮**仍为 TODO（`07` §3.4.2 / `06` §5.2）
+  - 过程 run：`run_id=5`（修复前 0.94）、`run_id=6`（无效）、`run_id=7`（与 8 同指标）可忽略作正式门禁
 - 2026-07-23（章节软上限）：
   - 有标题同节总长 ≤ `section_soft_max`（默认 1000）整节一块，允许超过 `chunk_size`
   - 超过软上限再切时，**每一块** `chunk_text` 均带标题前缀，避免续块检索偏弱
@@ -96,10 +132,11 @@
   - 抽取加载改为原生 `unstructured.partition_pdf`，移除 LlamaIndex `UnstructuredReader` 依赖（`llama-index-readers-file`）
   - `extract_version` 更新为 `unstructured-v1`；依赖固定 `unstructured==0.18.32` + `unstructured-inference` 1.5–1.6
   - 同步更新 `08`/`03`/`02`/`requirements.txt` 与操作手册；代码已落地
-- 2026-07-17（文档抽取 spec v0.5）：
+- 2026-07-17（文档抽取与文本切块解耦 / spec v0.5）：
+  - 将文档抽取与文本切块解耦：抽取产出独立落 `rag_documents`，切块再消费抽取结果
   - 新增 `08_document_extraction.md`：Unstructured 抽取、TextCleaner 清洗、表格 HTML、续表合并
   - 流程拆为三阶段：抽取（`rag_documents`）→ 切块（`full_text`）→ 索引（`rag_chunks`）
-  - 同步更新 `01`/`02`/`03`/`04` API 与数据模型；切块逻辑 spec 明确保持不变
+  - 同步更新 `01`/`02`/`03`/`04`；切块逻辑 spec 明确保持不变
   - （历史记录）当时代码尚未实现；现已落地，见上条
 - 2026-07-16（标注收紧）：
   - 种子集改用语料内唯一锚点短语，减少 OR 关键词误命中
@@ -116,8 +153,29 @@
   - 监控：`rag_query_logs` 写入与 `GET /rag/metrics` 聚合已落地
   - 测评：评测集管理、`POST /rag/eval/run` 执行与 `GET /rag/eval/runs` 历史查询已落地
   - 监控与测评自动化测试全部落地：监控 4 条 + 测评 13 条（`pytest tests/ -q`，32 通过 / 1 xfail）
-- 2026-07-13：
+- 2026-07-14（spec v0.4 瘦身）：
+  - 删减当时不落地的规划内容（阈值过滤、分数降级等后置能力）
+  - 监控与测评范围收敛为「本轮可实现」；差距项 `rag_retrieval_empty_reg_001` 明确留待后续
+- 2026-07-13（监控与测评设计 v0.4）：
+  - 新增子文档 `07_observability_and_eval.md`
+  - 同步更新接口、数据模型、流程、非功能与测试计划（监控/测评接口与表设计）
+- 2026-07-13（MySQL 落地 + 回归）：
+  - 代码落地：`/rag/chunks`（切分入库）与 `/rag/index/build`（读库建索引）拆分
+  - MySQL `rag_chunks` 持久化；服务重启后需重新 `index/build`（内存向量索引）
+  - 回归测试与契约对齐；接口命名与目标态一致
+- 2026-07-13（spec v0.3 重构）：
   - 明确 MySQL 只存 chunk 与 metadata，不存原始文档
   - 明确切分入库与索引构建必须拆分为两个阶段
-  - spec 重构为主文档 + 子文档结构，支持渐进式披露
-  - 新增监控与测评能力设计（子文档 `07`），同步更新接口、数据模型、流程、非功能与测试计划
+  - spec 重构为主文档 + 子文档结构（渐进式披露）：`01`–`06` 拆出
+- 2026-07-12（首版闭环 + 测试）：
+  - spec 补充 Embedding：`API_KEY_ALI` + `text-embedding-v4`（阿里云百炼）
+  - 添加三份 PDF 语料；新增本地调试操作手册
+  - 首版代码跑通：FastAPI `/rag/index`、`/rag/query`、`/rag/health`
+  - LlamaIndex 切分 + 内存向量索引 + Qwen Embedding 召回闭环（当时切分与建索引尚未拆分）
+  - spec v0.2 同步现状（入库改为本地 `file_path`）并完善测试用例
+  - 自动化测试落地并通过，修复相关代码问题
+- 2026-07-11（项目启动 / spec v0.1）：
+  - 仓库初始化（`.gitignore` / `LICENSE` / `README`）
+  - 首版规格：本地 RAG 检索服务（PDF 入库、向量 Top-K 召回）
+  - 技术栈约定：Python + LlamaIndex + FastAPI；接口草案 `/rag/index`、`/rag/query`、`/rag/health`
+  - 明确非目标：多租户/鉴权、rerank、在线热更新、前端、答案生成

@@ -267,7 +267,7 @@
 - `EvalRunResponse`
   - `run_id: int`（评测轮次 ID）
   - `dataset_size: int`（参与评测样本数）
-  - `top_k: int`（响应回显字段；未传请求级 `top_k` 时固定为 `3`）
+  - `top_k: int`（本轮实际检索窗口回显：有请求级覆盖则记请求值；否则记各样本实际 `top_k` 的众数，并列取较大值。勿与「未传时恒为 3」混淆）
   - `avg_hit: float`
   - `avg_recall: float`
   - `avg_mrr: float`

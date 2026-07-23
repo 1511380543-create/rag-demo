@@ -150,7 +150,7 @@ export MYSQL_DATABASE="rag_demo"
 
 - `id`: bigint 主键，自增（即 `run_id`）
 - `dataset_size`: int，参与评测样本数
-- `top_k`: int，本轮实际 `top_k`
+- `top_k`: int，本轮实际检索窗口回显（请求级覆盖，或各样本实际 `top_k` 的众数）
 - `avg_hit`: double，平均命中率
 - `avg_recall`: double，平均召回率
 - `avg_mrr`: double，平均 MRR

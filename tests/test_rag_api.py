@@ -450,6 +450,8 @@ def test_rag_eval_run_ok_001(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["run_id"] > 0
+    # 未传请求级 top_k 时应回显样本实际窗口，而非误记默认 3
+    assert body["top_k"] == _OBD_REG_TOP_K
     assert body["avg_hit"] == 1.0
     assert 0.0 <= body["avg_recall"] <= 1.0
     assert 0.0 <= body["avg_mrr"] <= 1.0
@@ -458,6 +460,7 @@ def test_rag_eval_run_ok_001(client: TestClient) -> None:
     item = body["items"][0]
     assert "retrieved_chunk_ids" in item
     assert isinstance(item["retrieved_chunk_ids"], list)
+    assert len(item["retrieved_chunk_ids"]) <= _OBD_REG_TOP_K
 
 
 def test_rag_eval_run_enabled_filter_001(client: TestClient) -> None:

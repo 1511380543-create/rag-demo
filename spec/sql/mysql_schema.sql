@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS `rag_eval_dataset` (
 CREATE TABLE IF NOT EXISTS `rag_eval_runs` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID,即run_id',
   `dataset_size` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '参与评测样本数',
-  `top_k` INT UNSIGNED NOT NULL COMMENT '本轮实际top_k',
+  `top_k` INT UNSIGNED NOT NULL COMMENT '本轮实际检索窗口回显(请求级覆盖或样本众数)',
   `avg_hit` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均命中率',
   `avg_recall` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均召回率',
   `avg_mrr` DOUBLE NOT NULL DEFAULT 0 COMMENT '平均MRR',

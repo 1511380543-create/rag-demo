@@ -52,8 +52,8 @@
 - `spec/architecture/08_document_extraction.md`：MinerU 抽取、企业级清洗、表格 HTML 与质量门禁（权威文档）
 - `spec/architecture/09_document_chunking.md`：文本块先拼再切；表格 chunk 为 Markdown 行组（权威文档）
 - `spec/architecture/04_non_functional_and_boundaries.md`：关键规则、边界条件、非功能约束
-- `spec/architecture/07_observability_and_eval.md`：监控与测评能力设计（权威文档）
-- `spec/eval/eval_dataset.json`：离线检索测评种子集（18 条，baseline 见 `06` §5）
+- `spec/architecture/07_observability_and_eval.md`：监控与测评（权威）；**§3.4.1 第一轮方向与优化**，§3.4.2 第二轮 TODO
+- `spec/eval/eval_dataset.json`：第一轮种子（50 条 / 十份 PDF，已完成；baseline `run_id=8` 见 `06` §5.1）
 - `spec/testing/05_test_plan_and_cases.md`：测试分层、覆盖目标、回归用例清单
 - `spec/status/06_status_and_iteration_log.md`：当前状态、里程碑、已知差距与迭代记录
 
