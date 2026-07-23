@@ -106,3 +106,32 @@ CREATE TABLE IF NOT EXISTS `rag_eval_run_items` (
   PRIMARY KEY (`id`),
   KEY `idx_run_id` (`run_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG评测逐条明细表';
+
+-- 切块冻结版元数据：必要时手动打一版（非 VIEW；第二轮落地，见 07 §3.2.2）
+CREATE TABLE IF NOT EXISTS `rag_eval_chunk_freezes` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID,即freeze_id',
+  `freeze_label` VARCHAR(128) NOT NULL COMMENT '冻结版可读标签',
+  `note` VARCHAR(255) NULL COMMENT '打版原因',
+  `pipeline_version` VARCHAR(64) NULL COMMENT '切块/pipeline版本备注',
+  `doc_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '纳入文档数',
+  `chunk_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '纳入chunk数',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '打版时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_freeze_label` (`freeze_label`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG评测切块冻结版元数据表';
+
+-- 切块冻结明细：拷贝打版当时的 chunk 正文，供金标可复现对比
+CREATE TABLE IF NOT EXISTS `rag_eval_chunk_snapshot_items` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `freeze_id` BIGINT UNSIGNED NOT NULL COMMENT '关联rag_eval_chunk_freezes.id',
+  `doc_id` VARCHAR(128) NOT NULL COMMENT '文档业务ID',
+  `chunk_index` INT UNSIGNED NOT NULL COMMENT '文档内chunk序号',
+  `chunk_text` MEDIUMTEXT NOT NULL COMMENT '冻结时chunk正文',
+  `content_hash` CHAR(64) NOT NULL COMMENT '正文SHA-256 hex',
+  `source_chunk_id` BIGINT UNSIGNED NULL COMMENT '打版当时rag_chunks.id',
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '写入时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_freeze_doc_index` (`freeze_id`, `doc_id`, `chunk_index`),
+  KEY `idx_freeze_id` (`freeze_id`),
+  KEY `idx_content_hash` (`content_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='RAG评测切块冻结明细表';

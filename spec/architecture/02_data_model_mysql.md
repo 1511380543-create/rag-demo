@@ -175,6 +175,38 @@ export MYSQL_DATABASE="rag_demo"
 
 - 查询索引：`idx_run_id(run_id)`
 
+### 3.7 `rag_eval_chunk_freezes`（切块冻结版元数据，第二轮待落地）
+
+> 约定见 `07` §3.2.2。物理表，非 VIEW；必要时手动打一版。
+
+- `id`: bigint 主键，自增（即 `freeze_id`）
+- `freeze_label`: varchar(128)，可读标签（如 `chunk-soft-max@2026-07-23`）
+- `note`: varchar(255)，打版原因（可空）
+- `pipeline_version`: varchar(64)，切块/pipeline 版本备注（可空）
+- `doc_count`: int，纳入文档数
+- `chunk_count`: int，纳入 chunk 数
+- `created_at`: datetime(3)，打版时间
+
+索引约束：
+
+- 唯一索引：`uk_freeze_label(freeze_label)`
+
+### 3.8 `rag_eval_chunk_snapshot_items`（切块冻结明细，第二轮待落地）
+
+- `id`: bigint 主键，自增
+- `freeze_id`: bigint，关联 `rag_eval_chunk_freezes.id`
+- `doc_id`: varchar(128)，文档业务 ID
+- `chunk_index`: int，文档内序号
+- `chunk_text`: mediumtext，冻结时正文拷贝
+- `content_hash`: char(64)，正文哈希（如 SHA-256 hex）
+- `source_chunk_id`: bigint，打版当时 `rag_chunks.id`（可空，仅追溯）
+- `created_at`: datetime(3)，写入时间
+
+索引约束：
+
+- 唯一索引：`uk_freeze_doc_index(freeze_id, doc_id, chunk_index)`
+- 查询索引：`idx_freeze_id(freeze_id)`、`idx_content_hash(content_hash)`
+
 ## 4. 数据生命周期规则
 
 - 新文档抽取：
